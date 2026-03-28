@@ -1,0 +1,38 @@
+ 
+services:
+  backend:
+    build:
+      context: ../apps/backend
+      dockerfile: Dockerfile
+    container_name: terminal_backend
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: "postgres://postgres:1@192.168.1.100:5432/postgres?options=-c%20search_path=renko"
+      JWT_SECRET: change_me
+      GOOGLE_CLIENT_ID: change_me
+      GOOGLE_CLIENT_SECRET: change_me
+      GOOGLE_CALLBACK_URL: http://localhost:3000/api/auth/google/callback
+      FRONTEND_URL: http://localhost:5174
+    ports:
+      - "3000:3000"
+    # depends_on:
+    #  db:
+    #    condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ../apps/frontend
+      dockerfile: Dockerfile
+    container_name: terminal_frontend
+    environment:
+      # используется на этапе runtime только если вы читаете их через template (опц.)
+      - VITE_API_URL=http://localhost:3000
+      - VITE_WS_URL=http://localhost:3000
+    ports:
+      - "5174:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+

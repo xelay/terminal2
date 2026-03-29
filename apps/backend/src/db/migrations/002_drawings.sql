@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS drawings (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   exchange    TEXT NOT NULL,
   symbol      TEXT NOT NULL,
   timeframe   TEXT NOT NULL,

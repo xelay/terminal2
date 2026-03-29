@@ -25,48 +25,63 @@ interface WorkspaceState {
   removeIndicator: (id: string) => void;
 }
 
-// кастомный storage: гость -> localStorage, авторизованный -> backend
 const apiStorage: StateStorage = {
   getItem: async (name: string): Promise<string | null> => {
     const token = localStorage.getItem('jwt_token');
+    console.log(`[workspace:storage] getItem key="${name}" token=${token ? 'present' : 'absent'}`);
     if (!token) {
-      return localStorage.getItem(name);
+      const raw = localStorage.getItem(name);
+      console.log(`[workspace:storage] → localStorage result:`, raw ? JSON.parse(raw) : null);
+      return raw;
     }
-    const res = await fetch('/api/user/workspace', {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (res.ok) {
-      const data = await res.json();
-      return JSON.stringify({ state: data });
+    try {
+      const res = await fetch('/api/user/workspace', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      console.log(`[workspace:storage] → /api/user/workspace status=${res.status}`);
+      if (res.ok) {
+        const data = await res.json();
+        console.log(`[workspace:storage] → backend data:`, data);
+        return JSON.stringify({ state: data });
+      }
+    } catch (e) {
+      console.error(`[workspace:storage] → fetch error:`, e);
     }
     return null;
   },
 
   setItem: async (name: string, value: string): Promise<void> => {
     const token = localStorage.getItem('jwt_token');
+    const stateObj = JSON.parse(value).state;
+    console.log(`[workspace:storage] setItem key="${name}" token=${token ? 'present' : 'absent'} state:`, stateObj);
     if (!token) {
       localStorage.setItem(name, value);
       return;
     }
-    const stateObj = JSON.parse(value).state;
-    await fetch('/api/user/workspace', {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(stateObj),
-    });
+    try {
+      const res = await fetch('/api/user/workspace', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(stateObj),
+      });
+      console.log(`[workspace:storage] → PUT /api/user/workspace status=${res.status}`);
+    } catch (e) {
+      console.error(`[workspace:storage] → PUT error:`, e);
+    }
   },
 
   removeItem: async (name: string): Promise<void> => {
+    console.log(`[workspace:storage] removeItem key="${name}"`);
     localStorage.removeItem(name);
   },
 };
 
 export const useWorkspaceStore = create<WorkspaceState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       exchange: 'bybit',
       symbol: 'BTC/USDT',
       timeframe: '15m',
@@ -75,34 +90,48 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         { id: 'sma_1', type: 'sma', params: { period: 20, color: '#2962FF' } },
       ],
 
-      setSymbol: (exchange, symbol) => set({ exchange, symbol }),
-      setTimeframe: (timeframe) => set({ timeframe }),
+      setSymbol: (exchange, symbol) => {
+        console.log(`[workspace] setSymbol exchange=${exchange} symbol=${symbol}`);
+        set({ exchange, symbol });
+      },
 
-      // Принимает опциональный id в params.id для детерминированного id индикатора
+      setTimeframe: (timeframe) => {
+        console.log(`[workspace] setTimeframe tf=${timeframe}`);
+        set({ timeframe });
+      },
+
       addIndicator: (type, params) =>
         set((state) => {
           const id = params.id ?? `${type}_${Date.now()}`;
           const cleanParams = { ...params };
           delete cleanParams.id;
-          return {
-            indicators: [
-              ...state.indicators,
-              { id, type, params: cleanParams },
-            ],
-          };
+          console.log(`[workspace] addIndicator type=${type} id=${id} params:`, cleanParams);
+          console.log(`[workspace] indicators before add:`, state.indicators.map(i => i.id));
+          const next = [
+            ...state.indicators,
+            { id, type, params: cleanParams },
+          ];
+          console.log(`[workspace] indicators after add:`, next.map(i => i.id));
+          return { indicators: next };
         }),
 
       updateIndicator: (id, params) =>
-        set((state) => ({
-          indicators: state.indicators.map((ind) =>
-            ind.id === id ? { ...ind, params: { ...ind.params, ...params } } : ind,
-          ),
-        })),
+        set((state) => {
+          console.log(`[workspace] updateIndicator id=${id} params:`, params);
+          return {
+            indicators: state.indicators.map((ind) =>
+              ind.id === id ? { ...ind, params: { ...ind.params, ...params } } : ind,
+            ),
+          };
+        }),
 
       removeIndicator: (id) =>
-        set((state) => ({
-          indicators: state.indicators.filter((ind) => ind.id !== id),
-        })),
+        set((state) => {
+          console.log(`[workspace] removeIndicator id=${id}`);
+          return {
+            indicators: state.indicators.filter((ind) => ind.id !== id),
+          };
+        }),
     }),
     {
       name: 'terminal-workspace',
@@ -113,6 +142,21 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         timeframe: state.timeframe,
         indicators: state.indicators,
       }),
+      onRehydrateStorage: () => {
+        console.log('[workspace:persist] ⏳ hydration started...');
+        return (state, error) => {
+          if (error) {
+            console.error('[workspace:persist] ❌ hydration error:', error);
+          } else {
+            console.log('[workspace:persist] ✅ hydration complete. State:', {
+              exchange: state?.exchange,
+              symbol: state?.symbol,
+              timeframe: state?.timeframe,
+              indicators: state?.indicators?.map(i => ({ id: i.id, type: i.type })),
+            });
+          }
+        };
+      },
     },
   ),
 );

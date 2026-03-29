@@ -2,30 +2,20 @@ import React, { useEffect, useRef } from 'react';
 import {
   LogicalRange,
   Time,
-  CandlestickData,
   HistogramData,
   LineData,
 } from 'lightweight-charts';
 import { io, Socket } from 'socket.io-client';
 import { useWorkspaceStore } from '../../store/workspace';
 import { useLightweightChart } from './lwc/useLightweightChart';
+import { useChartRefs } from './ChartRefsContext';
 
 const tfToSeconds: Record<string, number> = {
-  '1m': 60,
-  '5m': 300,
-  '15m': 900,
-  '1h': 3600,
-  '4h': 14400,
-  '1d': 86400,
+  '1m': 60, '5m': 300, '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400,
 };
 
 type Candle = {
-  time: number;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume: number;
+  time: number; open: number; high: number; low: number; close: number; volume: number;
 };
 
 export const ChartView: React.FC = () => {
@@ -33,25 +23,27 @@ export const ChartView: React.FC = () => {
   const { chartRef, candleSeriesRef, volumeSeriesRef, smaSeriesMapRef } =
     useLightweightChart(containerRef);
 
+  const { setChartRefs } = useChartRefs();
   const { exchange, symbol, timeframe, indicators } = useWorkspaceStore();
 
   const socketRef = useRef<Socket | null>(null);
   const candlesDataRef = useRef<Candle[]>([]);
   const isFetchingHistory = useRef(false);
 
-  // Актуальный список индикаторов в ref — читается в candle_update без пересоздания подписки
   const indicatorsRef = useRef(indicators);
-  useEffect(() => {
-    indicatorsRef.current = indicators;
-  }, [indicators]);
+  useEffect(() => { indicatorsRef.current = indicators; }, [indicators]);
 
-  // Объёмы: показываем данные если есть индикатор volume, иначе чистим серию
+  // Публикуем рефы после инициализации чарта (один раз, зависимость от containerRef)
+  useEffect(() => {
+    if (chartRef.current && candleSeriesRef.current) {
+      setChartRefs({ chart: chartRef.current, series: candleSeriesRef.current });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chartRef.current, candleSeriesRef.current]);
+
   const syncVolume = () => {
     const hasVolume = indicatorsRef.current.some((i) => i.type === 'volume');
-    if (!hasVolume) {
-      volumeSeriesRef.current?.setData([]);
-      return;
-    }
+    if (!hasVolume) { volumeSeriesRef.current?.setData([]); return; }
     const vols: HistogramData<Time>[] = candlesDataRef.current.map((c) => ({
       time: c.time as Time,
       value: c.volume,
@@ -60,10 +52,8 @@ export const ChartView: React.FC = () => {
     volumeSeriesRef.current?.setData(vols);
   };
 
-  // SMA: синхронизация всех серий
   const syncSMASeries = () => {
     if (!chartRef.current) return;
-
     const smaIndicators = indicatorsRef.current.filter((i) => i.type === 'sma');
     const map = smaSeriesMapRef.current;
     const src = candlesDataRef.current;
@@ -74,30 +64,19 @@ export const ChartView: React.FC = () => {
         map.delete(id);
       }
     }
-
     for (const ind of smaIndicators) {
       const period = ind.params.period ?? 20;
-      const color = ind.params.color ?? '#2962FF';
-
+      const color  = ind.params.color  ?? '#2962FF';
       if (!map.has(ind.id)) {
-        const series = chartRef.current.addLineSeries({
-          color,
-          lineWidth: 2,
-          crosshairMarkerVisible: false,
-          priceLineVisible: false,
-          lastValueVisible: false,
+        const s = chartRef.current.addLineSeries({
+          color, lineWidth: 2,
+          crosshairMarkerVisible: false, priceLineVisible: false, lastValueVisible: false,
         });
-        map.set(ind.id, series);
+        map.set(ind.id, s);
       }
-
       const series = map.get(ind.id)!;
       series.applyOptions({ color });
-
-      if (src.length < period) {
-        series.setData([]);
-        continue;
-      }
-
+      if (src.length < period) { series.setData([]); continue; }
       const smaData: LineData<Time>[] = [];
       for (let i = period - 1; i < src.length; i++) {
         let sum = 0;
@@ -122,21 +101,14 @@ export const ChartView: React.FC = () => {
       try {
         isFetchingHistory.current = true;
         const res = await fetch(
-          `http://localhost:3000/api/market/history?exchange=${exchange}&symbol=${symbol}&tf=${timeframe}&limit=500`,
+          `http://localhost:3000/api/market/history?exchange=${exchange}&symbol=${encodeURIComponent(symbol)}&tf=${timeframe}&limit=500`,
         );
         const { candles } = await res.json();
-
         if (candles && candles.length > 0) {
           const raw: Candle[] = candles.slice().sort((a: Candle, b: Candle) => a.time - b.time);
           candlesDataRef.current = raw;
           candleSeriesRef.current?.setData(
-            raw.map((c) => ({
-              time: c.time as Time,
-              open: c.open,
-              high: c.high,
-              low: c.low,
-              close: c.close,
-            }))
+            raw.map((c) => ({ time: c.time as Time, open: c.open, high: c.high, low: c.low, close: c.close }))
           );
           syncVolume();
           syncSMASeries();
@@ -144,7 +116,7 @@ export const ChartView: React.FC = () => {
           candlesDataRef.current = [];
           candleSeriesRef.current?.setData([]);
           volumeSeriesRef.current?.setData([]);
-          for (const series of smaSeriesMapRef.current.values()) series.setData([]);
+          for (const s of smaSeriesMapRef.current.values()) s.setData([]);
         }
       } catch (e) {
         console.error('loadInitialData error', e);
@@ -160,7 +132,6 @@ export const ChartView: React.FC = () => {
       if (payload.symbol !== symbol || payload.tf !== timeframe) return;
       const newCandle: Candle = payload.candle;
       const current = candlesDataRef.current;
-
       if (current.length > 0) {
         const last = current[current.length - 1];
         if (newCandle.time < last.time) return;
@@ -169,30 +140,20 @@ export const ChartView: React.FC = () => {
       } else {
         current.push(newCandle);
       }
-
       candleSeriesRef.current?.update({
-        time: newCandle.time as Time,
-        open: newCandle.open,
-        high: newCandle.high,
-        low: newCandle.low,
-        close: newCandle.close,
+        time: newCandle.time as Time, open: newCandle.open,
+        high: newCandle.high, low: newCandle.low, close: newCandle.close,
       });
-
-      // Volume: обновляем только если индикатор добавлен
       if (indicatorsRef.current.some((i) => i.type === 'volume')) {
-        const volBar: HistogramData<Time> = {
-          time: newCandle.time as Time,
-          value: newCandle.volume,
+        volumeSeriesRef.current?.update({
+          time: newCandle.time as Time, value: newCandle.volume,
           color: newCandle.close >= newCandle.open ? '#26a69a80' : '#ef535080',
-        };
-        volumeSeriesRef.current?.update(volBar);
+        });
       }
-
       syncSMASeries();
     };
 
     socket.on('candle_update', handleCandleUpdate);
-
     return () => {
       socket.emit('unsubscribe_chart', { exchange, symbol, tf: timeframe });
       socket.off('candle_update', handleCandleUpdate);
@@ -202,7 +163,6 @@ export const ChartView: React.FC = () => {
     };
   }, [exchange, symbol, timeframe, chartRef]);
 
-  // Пересинхронизация при любом изменении индикаторов
   useEffect(() => {
     syncVolume();
     syncSMASeries();
@@ -211,36 +171,24 @@ export const ChartView: React.FC = () => {
   useEffect(() => {
     if (!chartRef.current) return;
     const timeScale = chartRef.current.timeScale();
-
-    const onVisibleLogicalRangeChanged = async (newLogicalRange: LogicalRange | null) => {
+    const onRange = async (newLogicalRange: LogicalRange | null) => {
       if (!newLogicalRange) return;
       if (newLogicalRange.from < 50 && !isFetchingHistory.current && candlesDataRef.current.length > 0) {
         isFetchingHistory.current = true;
         try {
           const earliestTime = candlesDataRef.current[0].time;
-          const tfSec = tfToSeconds[timeframe] || 60;
-          const fromTime = earliestTime - 500 * tfSec;
-
+          const fromTime = earliestTime - 500 * (tfToSeconds[timeframe] || 60);
           const res = await fetch(
-            `http://localhost:3000/api/market/history?exchange=${exchange}&symbol=${symbol}&tf=${timeframe}&limit=500&from=${fromTime}`,
+            `http://localhost:3000/api/market/history?exchange=${exchange}&symbol=${encodeURIComponent(symbol)}&tf=${timeframe}&limit=500&from=${fromTime}`,
           );
-          const { candles: fetchedOldCandles } = await res.json();
-
-          if (fetchedOldCandles && fetchedOldCandles.length > 0) {
-            const strictOld = fetchedOldCandles.filter(
-              (c: Candle) => c.time < earliestTime,
-            );
+          const { candles: old } = await res.json();
+          if (old && old.length > 0) {
+            const strictOld = old.filter((c: Candle) => c.time < earliestTime);
             if (strictOld.length > 0) {
               const merged = [...strictOld, ...candlesDataRef.current].sort((a: Candle, b: Candle) => a.time - b.time);
               candlesDataRef.current = merged;
               candleSeriesRef.current?.setData(
-                merged.map((c: Candle) => ({
-                  time: c.time as Time,
-                  open: c.open,
-                  high: c.high,
-                  low: c.low,
-                  close: c.close,
-                }))
+                merged.map((c: Candle) => ({ time: c.time as Time, open: c.open, high: c.high, low: c.low, close: c.close }))
               );
               syncVolume();
               syncSMASeries();
@@ -253,17 +201,11 @@ export const ChartView: React.FC = () => {
         }
       }
     };
-
-    timeScale.subscribeVisibleLogicalRangeChange(onVisibleLogicalRangeChanged);
-    return () => {
-      timeScale.unsubscribeVisibleLogicalRangeChange(onVisibleLogicalRangeChanged);
-    };
+    timeScale.subscribeVisibleLogicalRangeChange(onRange);
+    return () => timeScale.unsubscribeVisibleLogicalRangeChange(onRange);
   }, [exchange, symbol, timeframe, chartRef]);
 
   return (
-    <div
-      ref={containerRef}
-      style={{ position: 'relative', width: '100%', height: '100%' }}
-    />
+    <div ref={containerRef} style={{ position: 'relative', width: '100%', height: '100%' }} />
   );
 };

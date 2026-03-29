@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ChartView } from '../features/chart/ChartView';
 import { IndicatorsModal } from '../features/chart/indicators/IndicatorsModal';
 import { SymbolSearchModal } from '../features/modals/SymbolSearchModal';
@@ -68,6 +68,15 @@ export const App: React.FC = () => {
   const toggleTool = (tool: DrawingTool) =>
     setActiveTool(prev => (prev === tool ? null : tool));
 
+  // Escape — выход из режима рисования
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setActiveTool(null);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   const toolBtnStyle = (active: boolean): React.CSSProperties => ({
     background: active ? '#2962FF' : 'transparent',
     border: active ? '1px solid #2962FF' : '1px solid transparent',
@@ -101,12 +110,10 @@ export const App: React.FC = () => {
           borderBottom: `1px solid ${isDark ? '#2b2b43' : '#e0e3eb'}`,
           display: 'flex', alignItems: 'center', padding: '0 16px', gap: '8px', flexShrink: 0,
         }}>
-          {/* Символ */}
           <button onClick={() => setIsSearchOpen(true)} style={secondaryBtnStyle}>
             {exchange.toUpperCase()} : {symbol}
           </button>
 
-          {/* Таймфреймы */}
           <div style={{ display: 'flex', gap: '2px' }}>
             {TIMEFRAMES.map(tf => (
               <button
@@ -124,12 +131,10 @@ export const App: React.FC = () => {
             ))}
           </div>
 
-          {/* Индикаторы — сразу после таймфреймов */}
           <button onClick={() => setIsIndicatorsOpen(true)} style={secondaryBtnStyle}>
             Индикаторы
           </button>
 
-          {/* Тема — всегда справа */}
           <button
             title={isDark ? 'Светлая тема' : 'Тёмная тема'}
             onClick={() => setTheme(isDark ? 'light' : 'dark')}

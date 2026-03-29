@@ -39,11 +39,28 @@ export const ChartView: React.FC = () => {
   const candlesDataRef = useRef<Candle[]>([]);
   const isFetchingHistory = useRef(false);
 
+  // Актуальный список индикаторов в ref — читается в candle_update без пересоздания подписки
   const indicatorsRef = useRef(indicators);
   useEffect(() => {
     indicatorsRef.current = indicators;
   }, [indicators]);
 
+  // Объёмы: показываем данные если есть индикатор volume, иначе чистим серию
+  const syncVolume = () => {
+    const hasVolume = indicatorsRef.current.some((i) => i.type === 'volume');
+    if (!hasVolume) {
+      volumeSeriesRef.current?.setData([]);
+      return;
+    }
+    const vols: HistogramData<Time>[] = candlesDataRef.current.map((c) => ({
+      time: c.time as Time,
+      value: c.volume,
+      color: c.close >= c.open ? '#26a69a80' : '#ef535080',
+    }));
+    volumeSeriesRef.current?.setData(vols);
+  };
+
+  // SMA: синхронизация всех серий
   const syncSMASeries = () => {
     if (!chartRef.current) return;
 
@@ -67,9 +84,7 @@ export const ChartView: React.FC = () => {
           color,
           lineWidth: 2,
           crosshairMarkerVisible: false,
-          // Убираем пунктирную линию последнего значения
           priceLineVisible: false,
-          // Убираем лейбл с ценой на шкале цен
           lastValueVisible: false,
         });
         map.set(ind.id, series);
@@ -91,15 +106,6 @@ export const ChartView: React.FC = () => {
       }
       series.setData(smaData);
     }
-  };
-
-  const recalcVolume = () => {
-    const vols: HistogramData<Time>[] = candlesDataRef.current.map((c) => ({
-      time: c.time as Time,
-      value: c.volume,
-      color: c.close >= c.open ? '#26a69a80' : '#ef535080',
-    }));
-    volumeSeriesRef.current?.setData(vols);
   };
 
   useEffect(() => {
@@ -132,7 +138,7 @@ export const ChartView: React.FC = () => {
               close: c.close,
             }))
           );
-          recalcVolume();
+          syncVolume();
           syncSMASeries();
         } else {
           candlesDataRef.current = [];
@@ -172,12 +178,15 @@ export const ChartView: React.FC = () => {
         close: newCandle.close,
       });
 
-      const volBar: HistogramData<Time> = {
-        time: newCandle.time as Time,
-        value: newCandle.volume,
-        color: newCandle.close >= newCandle.open ? '#26a69a80' : '#ef535080',
-      };
-      volumeSeriesRef.current?.update(volBar);
+      // Volume: обновляем только если индикатор добавлен
+      if (indicatorsRef.current.some((i) => i.type === 'volume')) {
+        const volBar: HistogramData<Time> = {
+          time: newCandle.time as Time,
+          value: newCandle.volume,
+          color: newCandle.close >= newCandle.open ? '#26a69a80' : '#ef535080',
+        };
+        volumeSeriesRef.current?.update(volBar);
+      }
 
       syncSMASeries();
     };
@@ -193,7 +202,9 @@ export const ChartView: React.FC = () => {
     };
   }, [exchange, symbol, timeframe, chartRef]);
 
+  // Пересинхронизация при любом изменении индикаторов
   useEffect(() => {
+    syncVolume();
     syncSMASeries();
   }, [indicators]);
 
@@ -231,7 +242,7 @@ export const ChartView: React.FC = () => {
                   close: c.close,
                 }))
               );
-              recalcVolume();
+              syncVolume();
               syncSMASeries();
             }
           }

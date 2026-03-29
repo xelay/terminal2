@@ -66,17 +66,14 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       exchange: 'bybit',
       symbol: 'BTC/USDT',
       timeframe: '15m',
-      indicators: [
-        { id: 'vol_1', type: 'volume', params: {} },
-        { id: 'sma_1', type: 'sma', params: { period: 20, color: '#2962FF' } },
-      ],
+      // По дефолту индикаторов нет — пользователь добавляет их вручную
+      indicators: [],
 
       setSymbol: (exchange, symbol) => set({ exchange, symbol }),
       setTimeframe: (timeframe) => set({ timeframe }),
 
       addIndicator: (type, params) =>
         set((state) => {
-          // Не допускаем дубликатов id
           const id = `${type}_${Date.now()}`;
           if (state.indicators.find((i) => i.id === id)) return state;
           return {
@@ -96,14 +93,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           indicators: state.indicators.filter((ind) => ind.id !== id),
         })),
 
-      // Сброс к дефолтному состоянию (полезно при накопившихся дублях)
-      clearIndicators: () =>
-        set({
-          indicators: [
-            { id: 'vol_1', type: 'volume', params: {} },
-            { id: 'sma_1', type: 'sma', params: { period: 20, color: '#2962FF' } },
-          ],
-        }),
+      clearIndicators: () => set({ indicators: [] }),
     }),
     {
       name: 'terminal-workspace',

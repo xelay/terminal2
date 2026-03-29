@@ -10,7 +10,7 @@ interface DrawingPoint {
 }
 
 interface Stroke {
-  id: string;       // UUID из БД (или tmp-xxx до сохранения)
+  id: string;
   points: DrawingPoint[];
   color: string;
   width: number;
@@ -24,7 +24,7 @@ interface Props {
 
 export const CanvasOverlay: React.FC<Props> = ({ chart, series, isDrawingMode }) => {
   const canvasRef      = useRef<HTMLCanvasElement>(null);
-  const strokesRef     = useRef<Stroke[]>([]);    // все сохранённые и новые
+  const strokesRef     = useRef<Stroke[]>([]);
   const currentStroke  = useRef<Stroke | null>(null);
   const isMouseDown    = useRef(false);
   const rafRef         = useRef<number>(0);
@@ -33,7 +33,6 @@ export const CanvasOverlay: React.FC<Props> = ({ chart, series, isDrawingMode })
 
   const getToken = () => localStorage.getItem('jwt_token');
 
-  // ――― API helpers ―――
   const loadDrawings = useCallback(async () => {
     const token = getToken();
     if (!token) return;
@@ -64,14 +63,12 @@ export const CanvasOverlay: React.FC<Props> = ({ chart, series, isDrawingMode })
         }),
       });
       const saved = await res.json();
-      // Обновляем tmp-id на настоящий UUID
       strokesRef.current = strokesRef.current.map((s) =>
         s.id === stroke.id ? { ...s, id: saved.id } : s,
       );
     } catch { /* silent */ }
   }, [exchange, symbol, timeframe]);
 
-  // ――― Canvas render loop ―――
   const render = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas || !chart || !series) return;
@@ -104,7 +101,6 @@ export const CanvasOverlay: React.FC<Props> = ({ chart, series, isDrawingMode })
     }
   }, [chart, series]);
 
-  // Синхронизация размера canvas с контейнером
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -118,17 +114,13 @@ export const CanvasOverlay: React.FC<Props> = ({ chart, series, isDrawingMode })
     return () => ro.disconnect();
   }, []);
 
-  // RAF-петля + подписка на масштабирование
   useEffect(() => {
     if (!chart || !series) return;
-
     const loop = () => { render(); rafRef.current = requestAnimationFrame(loop); };
     rafRef.current = requestAnimationFrame(loop);
-
     const onScale = () => render();
     chart.timeScale().subscribeVisibleTimeRangeChange(onScale);
     chart.timeScale().subscribeVisibleLogicalRangeChange(onScale);
-
     return () => {
       cancelAnimationFrame(rafRef.current);
       chart.timeScale().unsubscribeVisibleTimeRangeChange(onScale);
@@ -136,29 +128,22 @@ export const CanvasOverlay: React.FC<Props> = ({ chart, series, isDrawingMode })
     };
   }, [chart, series, render]);
 
-  // Загрузка рисунков при смене символа / tf
   useEffect(() => {
     strokesRef.current = [];
     loadDrawings();
   }, [exchange, symbol, timeframe, loadDrawings]);
 
-  // ――― Mouse handlers ―――
   const handleMouseDown = (e: React.MouseEvent) => {
     if (!isDrawingMode || !chart || !series) return;
     isMouseDown.current = true;
-
     const rect = canvasRef.current!.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-
-    const time  = chart.timeScale().coordinateToTime(x);
-    const price = series.coordinateToPrice(y);
-
+    const time  = chart.timeScale().coordinateToTime(e.clientX - rect.left);
+    const price = series.coordinateToPrice(e.clientY - rect.top);
     if (time !== null && price !== null) {
       currentStroke.current = {
         id: `tmp-${Date.now()}`,
         points: [{ time: time as number, price }],
-        color: '#2962FF',
+        color: '#FFD600',
         width: 2,
       };
     }
@@ -166,14 +151,9 @@ export const CanvasOverlay: React.FC<Props> = ({ chart, series, isDrawingMode })
 
   const handleMouseMove = (e: React.MouseEvent) => {
     if (!isMouseDown.current || !currentStroke.current || !chart || !series) return;
-
     const rect = canvasRef.current!.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-
-    const time  = chart.timeScale().coordinateToTime(x);
-    const price = series.coordinateToPrice(y);
-
+    const time  = chart.timeScale().coordinateToTime(e.clientX - rect.left);
+    const price = series.coordinateToPrice(e.clientY - rect.top);
     if (time !== null && price !== null) {
       currentStroke.current.points.push({ time: time as number, price });
     }
@@ -183,7 +163,7 @@ export const CanvasOverlay: React.FC<Props> = ({ chart, series, isDrawingMode })
     if (isMouseDown.current && currentStroke.current && currentStroke.current.points.length > 1) {
       const stroke = { ...currentStroke.current };
       strokesRef.current = [...strokesRef.current, stroke];
-      saveStroke(stroke); // асинх, не блокируем UI
+      saveStroke(stroke);
     }
     currentStroke.current = null;
     isMouseDown.current   = false;

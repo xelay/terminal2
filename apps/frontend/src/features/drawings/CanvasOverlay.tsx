@@ -10,7 +10,6 @@ const TRENDLINE_COLOR = '#FF4081';
 const BRUSH_WIDTH     = 2;
 const TRENDLINE_WIDTH = 2;
 const HIT_RADIUS      = 10;
-const LONG_PRESS_MS   = 500;
 
 interface DrawingPoint { time: number; price: number; }
 interface Stroke {
@@ -42,14 +41,8 @@ export const CanvasOverlay: React.FC<Props> = ({ chart, series, activeTool }) =>
   const mousePos      = useRef<{ x: number; y: number } | null>(null);
   const isMouseDown   = useRef(false);
   const rafRef        = useRef<number>(0);
-
-  // Long press
-  const longPressTimer   = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const longPressStart   = useRef<number>(0);        // timestamp
-  const longPressPos     = useRef<{ x: number; y: number } | null>(null);
-  const longPressFired   = useRef(false);            // сработал ли триггер
-  const longPressProgress = useRef<number>(0);       // 0..1 для анимации
-  const progressRafRef   = useRef<number>(0);
+  // Флаг чтобы mousedown после dblclick не создавал новый мазок
+  const skipNextDraw  = useRef(false);
 
   const { exchange, symbol, timeframe } = useWorkspaceStore();
   const getToken = () => localStorage.getItem('jwt_token');
@@ -132,42 +125,6 @@ export const CanvasOverlay: React.FC<Props> = ({ chart, series, activeTool }) =>
     }
     return best;
   }, [chart, series]);
-
-  // ―― Long press helpers ――
-  const cancelLongPress = () => {
-    if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
-    cancelAnimationFrame(progressRafRef.current);
-    longPressProgress.current = 0;
-    longPressFired.current    = false;
-    longPressPos.current      = null;
-  };
-
-  const startLongPress = (x: number, y: number) => {
-    cancelLongPress();
-    longPressStart.current = performance.now();
-    longPressPos.current   = { x, y };
-    longPressFired.current = false;
-
-    // Анимируем прогресс-дугу на canvas
-    const animateProgress = () => {
-      const elapsed = performance.now() - longPressStart.current;
-      longPressProgress.current = Math.min(elapsed / LONG_PRESS_MS, 1);
-      if (longPressProgress.current < 1 && longPressPos.current) {
-        progressRafRef.current = requestAnimationFrame(animateProgress);
-      }
-    };
-    progressRafRef.current = requestAnimationFrame(animateProgress);
-
-    longPressTimer.current = setTimeout(() => {
-      longPressFired.current = true;
-      longPressProgress.current = 0;
-      if (longPressPos.current) {
-        const hit = findStrokeAt(longPressPos.current.x, longPressPos.current.y);
-        if (hit) deleteStroke(hit.id);
-      }
-      longPressPos.current = null;
-    }, LONG_PRESS_MS);
-  };
 
   // ―― Render ――
   const render = useCallback(() => {
@@ -259,26 +216,6 @@ export const CanvasOverlay: React.FC<Props> = ({ chart, series, activeTool }) =>
         ctx.restore();
       }
     }
-
-    // Прогресс-дуга long press: дуга вокруг курсора
-    const p = longPressProgress.current;
-    const lp = longPressPos.current;
-    if (p > 0 && lp) {
-      ctx.save();
-      // Фоновая дужка
-      ctx.beginPath();
-      ctx.arc(lp.x, lp.y, 16, 0, Math.PI * 2);
-      ctx.strokeStyle = 'rgba(255,255,255,0.2)';
-      ctx.lineWidth = 3;
-      ctx.stroke();
-      // Активная дужка
-      ctx.beginPath();
-      ctx.arc(lp.x, lp.y, 16, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * p);
-      ctx.strokeStyle = '#FF4081';
-      ctx.lineWidth = 3;
-      ctx.stroke();
-      ctx.restore();
-    }
   }, [chart, series, activeTool, findStrokeAt]);
 
   // ―― ResizeObserver ――
@@ -325,13 +262,11 @@ export const CanvasOverlay: React.FC<Props> = ({ chart, series, activeTool }) =>
   };
 
   const handleMouseDown = (e: React.MouseEvent) => {
+    // dblclick генерирует mousedown перед собой — пропускаем
+    if (skipNextDraw.current) { skipNextDraw.current = false; return; }
     if (!activeTool || !chart || !series) return;
-    const { x, y, time, price } = getCoords(e);
+    const { time, price } = getCoords(e);
     if (time === null || price === null) return;
-
-    // Запускаем long press если есть что-то под курсором
-    const hit = findStrokeAt(x, y);
-    if (hit) { startLongPress(x, y); return; }
 
     if (activeTool === 'brush') {
       isMouseDown.current = true;
@@ -360,17 +295,7 @@ export const CanvasOverlay: React.FC<Props> = ({ chart, series, activeTool }) =>
 
   const handleMouseMove = (e: React.MouseEvent) => {
     const rect = canvasRef.current!.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    mousePos.current = { x, y };
-
-    // Движение отменяет long press
-    if (longPressPos.current) {
-      const dx = x - longPressPos.current.x;
-      const dy = y - longPressPos.current.y;
-      if (Math.hypot(dx, dy) > 5) cancelLongPress();
-    }
-
+    mousePos.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
     if (activeTool === 'brush' && isMouseDown.current && currentStroke.current && chart && series) {
       const { time, price } = getCoords(e);
       if (time !== null && price !== null) {
@@ -380,8 +305,7 @@ export const CanvasOverlay: React.FC<Props> = ({ chart, series, activeTool }) =>
   };
 
   const handleMouseUp = () => {
-    cancelLongPress();
-    if (!longPressFired.current && activeTool === 'brush' && isMouseDown.current &&
+    if (activeTool === 'brush' && isMouseDown.current &&
       currentStroke.current && currentStroke.current.points.length > 1) {
       const stroke = { ...currentStroke.current };
       strokesRef.current = [...strokesRef.current, stroke];
@@ -389,6 +313,20 @@ export const CanvasOverlay: React.FC<Props> = ({ chart, series, activeTool }) =>
     }
     currentStroke.current = null;
     isMouseDown.current   = false;
+  };
+
+  const handleDoubleClick = (e: React.MouseEvent) => {
+    if (!activeTool || !chart || !series) return;
+    // Отменяем начатый мазок (brush) или первую точку (trendline)
+    currentStroke.current  = null;
+    isMouseDown.current    = false;
+    trendStart.current     = null;
+    skipNextDraw.current   = true; // блокируем следующий mousedown
+    const rect = canvasRef.current!.getBoundingClientRect();
+    const cx = e.clientX - rect.left;
+    const cy = e.clientY - rect.top;
+    const hit = findStrokeAt(cx, cy);
+    if (hit) deleteStroke(hit.id);
   };
 
   const isActive = activeTool !== null;
@@ -399,7 +337,8 @@ export const CanvasOverlay: React.FC<Props> = ({ chart, series, activeTool }) =>
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
-      onMouseLeave={() => { mousePos.current = null; cancelLongPress(); handleMouseUp(); }}
+      onMouseLeave={() => { mousePos.current = null; handleMouseUp(); }}
+      onDoubleClick={handleDoubleClick}
       style={{
         position: 'absolute', top: 0, left: 0,
         width: '100%', height: '100%',

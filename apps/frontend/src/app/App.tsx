@@ -6,6 +6,7 @@ import { CanvasOverlay } from '../features/drawings/CanvasOverlay';
 import { ChartRefsContext } from '../features/chart/ChartRefsContext';
 import { useWorkspaceStore } from '../store/workspace';
 import { Timeframe } from '../store/workspace';
+import { CHART_THEMES } from '../features/chart/lwc/useLightweightChart';
 import '../styles/globals.css';
 
 export type DrawingTool = 'brush' | 'trendline' | null;
@@ -32,12 +33,37 @@ const IconTrendLine = ({ color }: { color: string }) => (
   </svg>
 );
 
+const IconMoon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+  </svg>
+);
+
+const IconSun = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="5" />
+    <line x1="12" y1="1" x2="12" y2="3" />
+    <line x1="12" y1="21" x2="12" y2="23" />
+    <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+    <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+    <line x1="1" y1="12" x2="3" y2="12" />
+    <line x1="21" y1="12" x2="23" y2="12" />
+    <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+    <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+  </svg>
+);
+
 export const App: React.FC = () => {
-  const { exchange, symbol, timeframe, setTimeframe } = useWorkspaceStore();
+  const { exchange, symbol, timeframe, setTimeframe, theme, setTheme } = useWorkspaceStore();
   const [isSearchOpen, setIsSearchOpen]         = useState(false);
   const [isIndicatorsOpen, setIsIndicatorsOpen] = useState(false);
   const [activeTool, setActiveTool]             = useState<DrawingTool>(null);
   const [chartRefs, setChartRefs] = useState<{ chart: any; series: any } | null>(null);
+
+  const isDark = theme === 'dark';
+  const colors = CHART_THEMES[theme];
 
   const toggleTool = (tool: DrawingTool) =>
     setActiveTool(prev => (prev === tool ? null : tool));
@@ -56,12 +82,25 @@ export const App: React.FC = () => {
 
   return (
     <ChartRefsContext.Provider value={{ chartRefs, setChartRefs }}>
-      <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#131722', color: 'white' }}>
+      <div style={{
+        display: 'flex', flexDirection: 'column', height: '100vh',
+        background: colors.bg, color: colors.text,
+        transition: 'background 0.2s, color 0.2s',
+      }}>
 
-        <header style={{ height: '50px', borderBottom: '1px solid #2b2b43', display: 'flex', alignItems: 'center', padding: '0 16px', gap: '16px', flexShrink: 0 }}>
+        <header style={{
+          height: '50px',
+          borderBottom: `1px solid ${isDark ? '#2b2b43' : '#e0e3eb'}`,
+          display: 'flex', alignItems: 'center', padding: '0 16px', gap: '16px', flexShrink: 0,
+        }}>
           <button
             onClick={() => setIsSearchOpen(true)}
-            style={{ background: '#2b2b43', color: 'white', border: 'none', padding: '6px 14px', borderRadius: '4px', cursor: 'pointer', fontSize: 14, whiteSpace: 'nowrap' }}
+            style={{
+              background: isDark ? '#2b2b43' : '#f0f3fa',
+              color: colors.text,
+              border: 'none', padding: '6px 14px', borderRadius: '4px',
+              cursor: 'pointer', fontSize: 14, whiteSpace: 'nowrap',
+            }}
           >
             {exchange.toUpperCase()} : {symbol}
           </button>
@@ -73,8 +112,9 @@ export const App: React.FC = () => {
                 onClick={() => setTimeframe(tf)}
                 style={{
                   background: timeframe === tf ? '#2962FF' : 'transparent',
-                  color: 'white', border: 'none',
-                  padding: '6px 10px', cursor: 'pointer', fontSize: 13, borderRadius: 3,
+                  color: timeframe === tf ? '#fff' : colors.text,
+                  border: 'none', padding: '6px 10px',
+                  cursor: 'pointer', fontSize: 13, borderRadius: 3,
                 }}
               >
                 {tf}
@@ -82,16 +122,45 @@ export const App: React.FC = () => {
             ))}
           </div>
 
-          <button
-            onClick={() => setIsIndicatorsOpen(true)}
-            style={{ background: '#2b2b43', color: 'white', border: 'none', padding: '6px 14px', borderRadius: '4px', cursor: 'pointer', marginLeft: 'auto', fontSize: 14 }}
-          >
-            Индикаторы
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }}>
+            {/* Переключатель темы */}
+            <button
+              title={isDark ? 'Светлая тема' : 'Тёмная тема'}
+              onClick={() => setTheme(isDark ? 'light' : 'dark')}
+              style={{
+                background: isDark ? '#2b2b43' : '#f0f3fa',
+                color: colors.text,
+                border: 'none', borderRadius: '4px',
+                width: 36, height: 36,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                cursor: 'pointer', transition: 'background 0.2s',
+                padding: 0, outline: 'none', flexShrink: 0,
+              }}
+            >
+              {isDark ? <IconSun /> : <IconMoon />}
+            </button>
+
+            <button
+              onClick={() => setIsIndicatorsOpen(true)}
+              style={{
+                background: isDark ? '#2b2b43' : '#f0f3fa',
+                color: colors.text,
+                border: 'none', padding: '6px 14px', borderRadius: '4px',
+                cursor: 'pointer', fontSize: 14,
+              }}
+            >
+              Индикаторы
+            </button>
+          </div>
         </header>
 
         <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-          <aside style={{ width: '50px', borderRight: '1px solid #2b2b43', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '16px 0', gap: '4px', flexShrink: 0 }}>
+          <aside style={{
+            width: '50px',
+            borderRight: `1px solid ${isDark ? '#2b2b43' : '#e0e3eb'}`,
+            display: 'flex', flexDirection: 'column', alignItems: 'center',
+            padding: '16px 0', gap: '4px', flexShrink: 0,
+          }}>
             <button
               title="Кисть"
               onClick={() => toggleTool('brush')}

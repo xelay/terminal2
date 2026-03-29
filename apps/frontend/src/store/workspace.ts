@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage, StateStorage } from 'zustand/middleware';
 
 export type Timeframe = '1m' | '5m' | '15m' | '1h' | '4h' | '1d' | '1w' | '1M';
+export type Theme = 'dark' | 'light';
 
 export type IndicatorType = 'sma' | 'volume';
 
@@ -16,9 +17,11 @@ interface WorkspaceState {
   symbol: string;
   timeframe: Timeframe;
   indicators: Indicator[];
+  theme: Theme;
 
   setSymbol: (exchange: string, symbol: string) => void;
   setTimeframe: (tf: Timeframe) => void;
+  setTheme: (theme: Theme) => void;
   addIndicator: (type: IndicatorType, params: any) => void;
   updateIndicator: (id: string, params: any) => void;
   removeIndicator: (id: string) => void;
@@ -64,9 +67,11 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       symbol: 'BTC/USDT',
       timeframe: '15m',
       indicators: [],
+      theme: 'dark',
 
       setSymbol: (exchange, symbol) => set({ exchange, symbol }),
       setTimeframe: (timeframe) => set({ timeframe }),
+      setTheme: (theme) => set({ theme }),
 
       addIndicator: (type, params) =>
         set((state) => {
@@ -97,6 +102,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         symbol: state.symbol,
         timeframe: state.timeframe,
         indicators: state.indicators,
+        theme: state.theme,
       }),
     },
   ),

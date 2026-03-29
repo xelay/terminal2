@@ -10,12 +10,39 @@ import '../styles/globals.css';
 
 const TIMEFRAMES: Timeframe[] = ['1m', '5m', '15m', '1h', '4h', '1d', '1w', '1M'];
 
+// SVG-иконки для тулбара
+const IconBrush = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M9.06 11.9l8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08" />
+    <path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1 1 2.48 1 3.5 1 1.96 0 3.5-1.54 3.5-3.5-.01-1.67-1.35-3.04-3-3.04z" />
+  </svg>
+);
+
+const IconTrendLine = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="3" y1="20" x2="21" y2="4" />
+    <circle cx="3" cy="20" r="1.5" fill="currentColor" stroke="none" />
+    <circle cx="21" cy="4" r="1.5" fill="currentColor" stroke="none" />
+  </svg>
+);
+
 export const App: React.FC = () => {
   const { exchange, symbol, timeframe, setTimeframe } = useWorkspaceStore();
   const [isSearchOpen, setIsSearchOpen]         = useState(false);
   const [isIndicatorsOpen, setIsIndicatorsOpen] = useState(false);
   const [isDrawingMode, setIsDrawingMode]       = useState(false);
   const [chartRefs, setChartRefs] = useState<{ chart: any; series: any } | null>(null);
+
+  const toolBtnStyle = (active = false): React.CSSProperties => ({
+    background: active ? '#2962FF' : 'transparent',
+    border: active ? '1px solid #2962FF' : '1px solid transparent',
+    borderRadius: 4,
+    color: active ? 'white' : '#9598a1',
+    cursor: 'pointer',
+    width: 36, height: 36,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    transition: 'background 0.15s, color 0.15s',
+  });
 
   return (
     <ChartRefsContext.Provider value={{ chartRefs, setChartRefs }}>
@@ -54,25 +81,20 @@ export const App: React.FC = () => {
         </header>
 
         <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-          <aside style={{ width: '50px', borderRight: '1px solid #2b2b43', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '16px 0', gap: '8px', flexShrink: 0 }}>
+          <aside style={{ width: '50px', borderRight: '1px solid #2b2b43', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '16px 0', gap: '4px', flexShrink: 0 }}>
             <button
               title="Кисть"
               onClick={() => setIsDrawingMode(m => !m)}
-              style={{
-                background: isDrawingMode ? '#2962FF' : 'transparent',
-                border: isDrawingMode ? '1px solid #2962FF' : '1px solid transparent',
-                borderRadius: 4, color: 'white', cursor: 'pointer',
-                fontSize: '18px', width: 36, height: 36,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}
+              style={toolBtnStyle(isDrawingMode)}
             >
-              🖌
+              <IconBrush />
             </button>
+
             <button
-              title="Линия тренда"
-              style={{ background: 'transparent', border: '1px solid transparent', borderRadius: 4, color: 'white', cursor: 'pointer', fontSize: '18px', width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              title="Линия тренда (скоро)"
+              style={toolBtnStyle(false)}
             >
-              📉
+              <IconTrendLine />
             </button>
           </aside>
 

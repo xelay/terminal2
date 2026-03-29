@@ -7,31 +7,25 @@ interface IndicatorsModalProps {
   onClose: () => void;
 }
 
-// Специальное значение: форма создания нового SMA (не редактирование существующего)
 const NEW_SMA_ID = '__new__';
 
 export const IndicatorsModal: React.FC<IndicatorsModalProps> = ({ onClose }) => {
-  const { indicators, addIndicator } = useWorkspaceStore();
+  const { indicators, addIndicator, removeIndicator } = useWorkspaceStore();
   const [editingId, setEditingId] = useState<string | null>(null);
 
-  // editingId === '__new__' → создание нового SMA (SMAForm без indicatorId)
-  // editingId === 'sma_xxx' → редактирование существующего
   const isCreatingNew = editingId === NEW_SMA_ID;
   const editingIndicator = editingId && !isCreatingNew
     ? indicators.find((i) => i.id === editingId)
     : undefined;
-
   const showForm = isCreatingNew || !!editingIndicator;
 
   const handleAdd = (meta: IndicatorMeta) => {
     if (meta.type === 'sma') {
-      // Открываем форму создания — SMAForm сам вызовет addIndicator при сохранении
       setEditingId(NEW_SMA_ID);
       return;
     }
     if (meta.type === 'volume') {
       addIndicator('volume', meta.defaultParams);
-      onClose();
     }
   };
 
@@ -61,19 +55,14 @@ export const IndicatorsModal: React.FC<IndicatorsModalProps> = ({ onClose }) => 
           overflowY: 'auto',
         }}
       >
+        {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h3 style={{ margin: 0, color: '#fff' }}>
             {showForm ? (isCreatingNew ? 'Добавить SMA' : 'Настройки SMA') : 'Индикаторы'}
           </h3>
           <button
             onClick={showForm ? () => setEditingId(null) : onClose}
-            style={{
-              background: 'transparent',
-              border: 'none',
-              color: '#d1d4dc',
-              cursor: 'pointer',
-              fontSize: 18,
-            }}
+            style={{ background: 'transparent', border: 'none', color: '#d1d4dc', cursor: 'pointer', fontSize: 18 }}
           >
             {showForm ? '← Назад' : '✕'}
           </button>
@@ -81,6 +70,7 @@ export const IndicatorsModal: React.FC<IndicatorsModalProps> = ({ onClose }) => 
 
         {!showForm && (
           <>
+            {/* Добавить новый */}
             <div style={{ fontSize: 13, opacity: 0.8 }}>Добавить новый индикатор:</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {INDICATORS_REGISTRY.map((meta) => (
@@ -104,26 +94,25 @@ export const IndicatorsModal: React.FC<IndicatorsModalProps> = ({ onClose }) => 
               ))}
             </div>
 
+            {/* Список добавленных */}
             {indicators.length > 0 && (
-              <div style={{ marginTop: 4, fontSize: 13 }}>
+              <div style={{ fontSize: 13 }}>
                 <div style={{ opacity: 0.8, marginBottom: 6 }}>Уже добавлены:</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                   {indicators.map((ind) => (
                     <div
                       key={ind.id}
-                      onClick={() => ind.type === 'sma' ? setEditingId(ind.id) : undefined}
                       style={{
                         display: 'flex',
-                        justifyContent: 'space-between',
                         alignItems: 'center',
-                        fontSize: 12,
-                        padding: '4px 8px',
+                        gap: 8,
+                        padding: '6px 8px',
                         borderRadius: 4,
                         background: '#131722',
-                        cursor: ind.type === 'sma' ? 'pointer' : 'default',
                       }}
                     >
-                      <span>
+                      {/* Название и параметры */}
+                      <span style={{ flex: 1, fontSize: 12 }}>
                         {ind.type.toUpperCase()}
                         {ind.type === 'sma' && (
                           <span style={{ marginLeft: 6, opacity: 0.5, fontSize: 11 }}>
@@ -131,9 +120,44 @@ export const IndicatorsModal: React.FC<IndicatorsModalProps> = ({ onClose }) => 
                           </span>
                         )}
                       </span>
+
+                      {/* Кнопка настроек (только для SMA) */}
                       {ind.type === 'sma' && (
-                        <span style={{ color: '#2962FF', fontSize: 11 }}>✎ настройки</span>
+                        <button
+                          onClick={() => setEditingId(ind.id)}
+                          title="Настройки"
+                          style={{
+                            background: 'transparent',
+                            border: '1px solid #2b2b43',
+                            borderRadius: 4,
+                            color: '#2962FF',
+                            cursor: 'pointer',
+                            padding: '2px 8px',
+                            fontSize: 12,
+                            lineHeight: '18px',
+                          }}
+                        >
+                          ⚙️
+                        </button>
                       )}
+
+                      {/* Кнопка удалить */}
+                      <button
+                        onClick={() => removeIndicator(ind.id)}
+                        title="Удалить"
+                        style={{
+                          background: 'transparent',
+                          border: '1px solid #ef5350',
+                          borderRadius: 4,
+                          color: '#ef5350',
+                          cursor: 'pointer',
+                          padding: '2px 8px',
+                          fontSize: 12,
+                          lineHeight: '18px',
+                        }}
+                      >
+                        ✕
+                      </button>
                     </div>
                   ))}
                 </div>

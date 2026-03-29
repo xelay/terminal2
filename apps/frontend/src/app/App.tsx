@@ -80,6 +80,14 @@ export const App: React.FC = () => {
     outline: 'none',
   });
 
+  const secondaryBtnStyle: React.CSSProperties = {
+    background: isDark ? '#2b2b43' : '#f0f3fa',
+    color: colors.text,
+    border: 'none', borderRadius: '4px',
+    cursor: 'pointer', fontSize: 14,
+    padding: '6px 14px', whiteSpace: 'nowrap',
+  };
+
   return (
     <ChartRefsContext.Provider value={{ chartRefs, setChartRefs }}>
       <div style={{
@@ -91,20 +99,14 @@ export const App: React.FC = () => {
         <header style={{
           height: '50px',
           borderBottom: `1px solid ${isDark ? '#2b2b43' : '#e0e3eb'}`,
-          display: 'flex', alignItems: 'center', padding: '0 16px', gap: '16px', flexShrink: 0,
+          display: 'flex', alignItems: 'center', padding: '0 16px', gap: '8px', flexShrink: 0,
         }}>
-          <button
-            onClick={() => setIsSearchOpen(true)}
-            style={{
-              background: isDark ? '#2b2b43' : '#f0f3fa',
-              color: colors.text,
-              border: 'none', padding: '6px 14px', borderRadius: '4px',
-              cursor: 'pointer', fontSize: 14, whiteSpace: 'nowrap',
-            }}
-          >
+          {/* Символ */}
+          <button onClick={() => setIsSearchOpen(true)} style={secondaryBtnStyle}>
             {exchange.toUpperCase()} : {symbol}
           </button>
 
+          {/* Таймфреймы */}
           <div style={{ display: 'flex', gap: '2px' }}>
             {TIMEFRAMES.map(tf => (
               <button
@@ -122,36 +124,26 @@ export const App: React.FC = () => {
             ))}
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }}>
-            {/* Переключатель темы */}
-            <button
-              title={isDark ? 'Светлая тема' : 'Тёмная тема'}
-              onClick={() => setTheme(isDark ? 'light' : 'dark')}
-              style={{
-                background: isDark ? '#2b2b43' : '#f0f3fa',
-                color: colors.text,
-                border: 'none', borderRadius: '4px',
-                width: 36, height: 36,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                cursor: 'pointer', transition: 'background 0.2s',
-                padding: 0, outline: 'none', flexShrink: 0,
-              }}
-            >
-              {isDark ? <IconSun /> : <IconMoon />}
-            </button>
+          {/* Индикаторы — сразу после таймфреймов */}
+          <button onClick={() => setIsIndicatorsOpen(true)} style={secondaryBtnStyle}>
+            Индикаторы
+          </button>
 
-            <button
-              onClick={() => setIsIndicatorsOpen(true)}
-              style={{
-                background: isDark ? '#2b2b43' : '#f0f3fa',
-                color: colors.text,
-                border: 'none', padding: '6px 14px', borderRadius: '4px',
-                cursor: 'pointer', fontSize: 14,
-              }}
-            >
-              Индикаторы
-            </button>
-          </div>
+          {/* Тема — всегда справа */}
+          <button
+            title={isDark ? 'Светлая тема' : 'Тёмная тема'}
+            onClick={() => setTheme(isDark ? 'light' : 'dark')}
+            style={{
+              ...secondaryBtnStyle,
+              marginLeft: 'auto',
+              padding: 0,
+              width: 36, height: 36,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              flexShrink: 0,
+            }}
+          >
+            {isDark ? <IconSun /> : <IconMoon />}
+          </button>
         </header>
 
         <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
@@ -161,19 +153,10 @@ export const App: React.FC = () => {
             display: 'flex', flexDirection: 'column', alignItems: 'center',
             padding: '16px 0', gap: '4px', flexShrink: 0,
           }}>
-            <button
-              title="Кисть"
-              onClick={() => toggleTool('brush')}
-              style={toolBtnStyle(activeTool === 'brush')}
-            >
+            <button title="Кисть" onClick={() => toggleTool('brush')} style={toolBtnStyle(activeTool === 'brush')}>
               <IconBrush color={activeTool === 'brush' ? ICON_ACTIVE : ICON_DEFAULT} />
             </button>
-
-            <button
-              title="Линия тренда"
-              onClick={() => toggleTool('trendline')}
-              style={toolBtnStyle(activeTool === 'trendline')}
-            >
+            <button title="Линия тренда" onClick={() => toggleTool('trendline')} style={toolBtnStyle(activeTool === 'trendline')}>
               <IconTrendLine color={activeTool === 'trendline' ? ICON_ACTIVE : ICON_DEFAULT} />
             </button>
           </aside>

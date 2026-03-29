@@ -1,16 +1,21 @@
-import { useEffect, useRef, useState } from 'react';
-import { createChart, IChartApi, ISeriesApi, CandlestickData, Time, HistogramData, LineData } from 'lightweight-charts';
+import { useEffect, useRef } from 'react';
+import {
+  createChart,
+  IChartApi,
+  ISeriesApi,
+  Time,
+} from 'lightweight-charts';
 
 export function useLightweightChart(containerRef: React.RefObject<HTMLDivElement>) {
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
-  const smaSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  // Map<indicatorId, LineSeries> для поддержки нескольких SMA
+  const smaSeriesMapRef = useRef<Map<string, ISeriesApi<'Line'>>>(new Map());
 
   useEffect(() => {
     if (!containerRef.current) return;
 
-    // 1. Создаем график с темной темой по умолчанию
     const chart = createChart(containerRef.current, {
       layout: {
         background: { color: '#131722' },
@@ -20,16 +25,13 @@ export function useLightweightChart(containerRef: React.RefObject<HTMLDivElement
         vertLines: { color: '#2b2b43' },
         horzLines: { color: '#2b2b43' },
       },
-      crosshair: {
-        mode: 0, // Normal mode
-      },
+      crosshair: { mode: 0 },
       timeScale: {
         timeVisible: true,
         secondsVisible: false,
       },
     });
 
-    // 2. Основная серия: Японские свечи
     const candleSeries = chart.addCandlestickSeries({
       upColor: '#26a69a',
       downColor: '#ef5350',
@@ -38,31 +40,21 @@ export function useLightweightChart(containerRef: React.RefObject<HTMLDivElement
       wickDownColor: '#ef5350',
     });
 
-    // 3. Серия: Объем (Volume) отображается внизу графика (priceScaleId: '')
     const volumeSeries = chart.addHistogramSeries({
       color: '#26a69a',
       priceFormat: { type: 'volume' },
-      priceScaleId: '', 
+      priceScaleId: '',
     });
-
-    volumeSeries.priceScale().applyOptions({scaleMargins: {
-        top: 0.8, // Объем занимает нижние 20% высоты
-        bottom: 0,
-      },});
-
-    // 4. Серия: SMA (простая скользящая средняя) накладывается поверх свечей
-    const smaSeries = chart.addLineSeries({
-      color: '#2962FF',
-      lineWidth: 2,
-      crosshairMarkerVisible: false,
+    volumeSeries.priceScale().applyOptions({
+      scaleMargins: { top: 0.8, bottom: 0 },
     });
 
     chartRef.current = chart;
     candleSeriesRef.current = candleSeries;
     volumeSeriesRef.current = volumeSeries;
-    smaSeriesRef.current = smaSeries;
+    // Очищаем Map при пересоздании графика
+    smaSeriesMapRef.current = new Map();
 
-    // Ресайз графика при изменении окна
     const handleResize = () => {
       chart.applyOptions({
         width: containerRef.current?.clientWidth || 0,
@@ -70,12 +62,16 @@ export function useLightweightChart(containerRef: React.RefObject<HTMLDivElement
       });
     };
     window.addEventListener('resize', handleResize);
-    
+
     return () => {
       window.removeEventListener('resize', handleResize);
       chart.remove();
+      chartRef.current = null;
+      candleSeriesRef.current = null;
+      volumeSeriesRef.current = null;
+      smaSeriesMapRef.current = new Map();
     };
   }, [containerRef]);
 
-  return { chartRef, candleSeriesRef, volumeSeriesRef, smaSeriesRef };
+  return { chartRef, candleSeriesRef, volumeSeriesRef, smaSeriesMapRef };
 }

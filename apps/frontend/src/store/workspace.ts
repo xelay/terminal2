@@ -23,65 +23,50 @@ interface WorkspaceState {
   addIndicator: (type: IndicatorType, params: any) => void;
   updateIndicator: (id: string, params: any) => void;
   removeIndicator: (id: string) => void;
+  removeAllIndicators: () => void;
 }
 
 const apiStorage: StateStorage = {
   getItem: async (name: string): Promise<string | null> => {
     const token = localStorage.getItem('jwt_token');
-    console.log(`[workspace:storage] getItem key="${name}" token=${token ? 'present' : 'absent'}`);
     if (!token) {
-      const raw = localStorage.getItem(name);
-      console.log(`[workspace:storage] → localStorage result:`, raw ? JSON.parse(raw) : null);
-      return raw;
+      return localStorage.getItem(name);
     }
-    try {
-      const res = await fetch('/api/user/workspace', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      console.log(`[workspace:storage] → /api/user/workspace status=${res.status}`);
-      if (res.ok) {
-        const data = await res.json();
-        console.log(`[workspace:storage] → backend data:`, data);
-        return JSON.stringify({ state: data });
-      }
-    } catch (e) {
-      console.error(`[workspace:storage] → fetch error:`, e);
+    const res = await fetch('/api/user/workspace', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return JSON.stringify({ state: data });
     }
     return null;
   },
 
   setItem: async (name: string, value: string): Promise<void> => {
     const token = localStorage.getItem('jwt_token');
-    const stateObj = JSON.parse(value).state;
-    console.log(`[workspace:storage] setItem key="${name}" token=${token ? 'present' : 'absent'} state:`, stateObj);
     if (!token) {
       localStorage.setItem(name, value);
       return;
     }
-    try {
-      const res = await fetch('/api/user/workspace', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(stateObj),
-      });
-      console.log(`[workspace:storage] → PUT /api/user/workspace status=${res.status}`);
-    } catch (e) {
-      console.error(`[workspace:storage] → PUT error:`, e);
-    }
+    const stateObj = JSON.parse(value).state;
+    await fetch('/api/user/workspace', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(stateObj),
+    });
   },
 
   removeItem: async (name: string): Promise<void> => {
-    console.log(`[workspace:storage] removeItem key="${name}"`);
     localStorage.removeItem(name);
   },
 };
 
 export const useWorkspaceStore = create<WorkspaceState>()(
   persist(
-    (set, get) => ({
+    (set) => ({
       exchange: 'bybit',
       symbol: 'BTC/USDT',
       timeframe: '15m',
@@ -90,48 +75,35 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         { id: 'sma_1', type: 'sma', params: { period: 20, color: '#2962FF' } },
       ],
 
-      setSymbol: (exchange, symbol) => {
-        console.log(`[workspace] setSymbol exchange=${exchange} symbol=${symbol}`);
-        set({ exchange, symbol });
-      },
-
-      setTimeframe: (timeframe) => {
-        console.log(`[workspace] setTimeframe tf=${timeframe}`);
-        set({ timeframe });
-      },
+      setSymbol: (exchange, symbol) => set({ exchange, symbol }),
+      setTimeframe: (timeframe) => set({ timeframe }),
 
       addIndicator: (type, params) =>
         set((state) => {
           const id = params.id ?? `${type}_${Date.now()}`;
           const cleanParams = { ...params };
           delete cleanParams.id;
-          console.log(`[workspace] addIndicator type=${type} id=${id} params:`, cleanParams);
-          console.log(`[workspace] indicators before add:`, state.indicators.map(i => i.id));
-          const next = [
-            ...state.indicators,
-            { id, type, params: cleanParams },
-          ];
-          console.log(`[workspace] indicators after add:`, next.map(i => i.id));
-          return { indicators: next };
+          return {
+            indicators: [
+              ...state.indicators,
+              { id, type, params: cleanParams },
+            ],
+          };
         }),
 
       updateIndicator: (id, params) =>
-        set((state) => {
-          console.log(`[workspace] updateIndicator id=${id} params:`, params);
-          return {
-            indicators: state.indicators.map((ind) =>
-              ind.id === id ? { ...ind, params: { ...ind.params, ...params } } : ind,
-            ),
-          };
-        }),
+        set((state) => ({
+          indicators: state.indicators.map((ind) =>
+            ind.id === id ? { ...ind, params: { ...ind.params, ...params } } : ind,
+          ),
+        })),
 
       removeIndicator: (id) =>
-        set((state) => {
-          console.log(`[workspace] removeIndicator id=${id}`);
-          return {
-            indicators: state.indicators.filter((ind) => ind.id !== id),
-          };
-        }),
+        set((state) => ({
+          indicators: state.indicators.filter((ind) => ind.id !== id),
+        })),
+
+      removeAllIndicators: () => set({ indicators: [] }),
     }),
     {
       name: 'terminal-workspace',
@@ -142,20 +114,17 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         timeframe: state.timeframe,
         indicators: state.indicators,
       }),
-      onRehydrateStorage: () => {
-        console.log('[workspace:persist] ⏳ hydration started...');
-        return (state, error) => {
-          if (error) {
-            console.error('[workspace:persist] ❌ hydration error:', error);
-          } else {
-            console.log('[workspace:persist] ✅ hydration complete. State:', {
-              exchange: state?.exchange,
-              symbol: state?.symbol,
-              timeframe: state?.timeframe,
-              indicators: state?.indicators?.map(i => ({ id: i.id, type: i.type })),
-            });
-          }
-        };
+      // Дедупликация по id после восстановления из localStorage
+      merge: (persisted: any, current) => {
+        const persistedState = persisted as Partial<WorkspaceState>;
+        if (!persistedState.indicators) return { ...current, ...persistedState };
+        const seen = new Set<string>();
+        const deduped = persistedState.indicators.filter((ind: Indicator) => {
+          if (seen.has(ind.id)) return false;
+          seen.add(ind.id);
+          return true;
+        });
+        return { ...current, ...persistedState, indicators: deduped };
       },
     },
   ),

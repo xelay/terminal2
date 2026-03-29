@@ -1,17 +1,21 @@
 import React, { useEffect, useRef, useCallback } from 'react';
 import { IChartApi, ISeriesApi } from 'lightweight-charts';
 import { useWorkspaceStore } from '../../store/workspace';
+import { DrawingTool } from '../../app/App';
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
-interface DrawingPoint {
-  time: number;
-  price: number;
-}
+const BRUSH_COLOR     = '#FFD600';
+const TRENDLINE_COLOR = '#FF4081';
+const BRUSH_WIDTH     = 2;
+const TRENDLINE_WIDTH = 2;
+
+interface DrawingPoint { time: number; price: number; }
 
 interface Stroke {
   id: string;
-  points: DrawingPoint[];
+  type: 'brush' | 'trendline';
+  points: DrawingPoint[];  // brush: много | trendline: [ТочкаA, ТочкаB]
   color: string;
   width: number;
 }
@@ -19,20 +23,24 @@ interface Stroke {
 interface Props {
   chart: IChartApi | null;
   series: ISeriesApi<'Candlestick'> | null;
-  isDrawingMode: boolean;
+  activeTool: DrawingTool;
 }
 
-export const CanvasOverlay: React.FC<Props> = ({ chart, series, isDrawingMode }) => {
-  const canvasRef      = useRef<HTMLCanvasElement>(null);
-  const strokesRef     = useRef<Stroke[]>([]);
-  const currentStroke  = useRef<Stroke | null>(null);
-  const isMouseDown    = useRef(false);
-  const rafRef         = useRef<number>(0);
+export const CanvasOverlay: React.FC<Props> = ({ chart, series, activeTool }) => {
+  const canvasRef     = useRef<HTMLCanvasElement>(null);
+  const strokesRef    = useRef<Stroke[]>([]);
+  const currentStroke = useRef<Stroke | null>(null);
+  // для trendline: ждём второго клика
+  const trendStart    = useRef<DrawingPoint | null>(null);
+  // позиция мыши для превью trendline
+  const mousePos      = useRef<{ x: number; y: number } | null>(null);
+  const isMouseDown   = useRef(false);
+  const rafRef        = useRef<number>(0);
 
   const { exchange, symbol, timeframe } = useWorkspaceStore();
-
   const getToken = () => localStorage.getItem('jwt_token');
 
+  // ―― API ――
   const loadDrawings = useCallback(async () => {
     const token = getToken();
     if (!token) return;
@@ -43,8 +51,7 @@ export const CanvasOverlay: React.FC<Props> = ({ chart, series, isDrawingMode })
       );
       const data = await res.json();
       strokesRef.current = (data.drawings || []).map((d: any) => ({
-        id: d.id,
-        ...d.data,
+        id: d.id, type: d.type, ...d.data,
       }));
     } catch { /* silent */ }
   }, [exchange, symbol, timeframe]);
@@ -58,49 +65,95 @@ export const CanvasOverlay: React.FC<Props> = ({ chart, series, isDrawingMode })
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           exchange, symbol, timeframe,
-          type: 'brush',
+          type: stroke.type,
           data: { points: stroke.points, color: stroke.color, width: stroke.width },
         }),
       });
       const saved = await res.json();
-      strokesRef.current = strokesRef.current.map((s) =>
+      strokesRef.current = strokesRef.current.map(s =>
         s.id === stroke.id ? { ...s, id: saved.id } : s,
       );
     } catch { /* silent */ }
   }, [exchange, symbol, timeframe]);
 
+  // ―― Render ――
   const render = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas || !chart || !series) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    const all = currentStroke.current
-      ? [...strokesRef.current, currentStroke.current]
-      : strokesRef.current;
-
-    for (const stroke of all) {
-      if (stroke.points.length < 2) continue;
+    // Рисуем все сохранённые
+    const drawStroke = (stroke: Stroke, previewEnd?: { x: number; y: number }) => {
       ctx.beginPath();
       ctx.strokeStyle = stroke.color;
       ctx.lineWidth   = stroke.width;
       ctx.lineJoin    = 'round';
       ctx.lineCap     = 'round';
 
-      let first = true;
-      for (const pt of stroke.points) {
-        const x = chart.timeScale().timeToCoordinate(pt.time as any);
-        const y = series.priceToCoordinate(pt.price);
-        if (x === null || y === null) continue;
-        if (first) { ctx.moveTo(x, y); first = false; }
-        else ctx.lineTo(x, y);
+      if (stroke.type === 'trendline') {
+        // Простая линия A → B
+        const A = stroke.points[0];
+        const B = stroke.points[1];
+        if (!A) return;
+        const ax = chart.timeScale().timeToCoordinate(A.time as any);
+        const ay = series.priceToCoordinate(A.price);
+        if (ax === null || ay === null) return;
+        ctx.moveTo(ax, ay);
+        if (B) {
+          const bx = chart.timeScale().timeToCoordinate(B.time as any);
+          const by = series.priceToCoordinate(B.price);
+          if (bx !== null && by !== null) ctx.lineTo(bx, by);
+        } else if (previewEnd) {
+          ctx.lineTo(previewEnd.x, previewEnd.y);
+        }
+      } else {
+        // Brush: цепочка точек
+        let first = true;
+        for (const pt of stroke.points) {
+          const x = chart.timeScale().timeToCoordinate(pt.time as any);
+          const y = series.priceToCoordinate(pt.price);
+          if (x === null || y === null) continue;
+          if (first) { ctx.moveTo(x, y); first = false; } else ctx.lineTo(x, y);
+        }
       }
       ctx.stroke();
-    }
-  }, [chart, series]);
 
+      // Точки на концах трендлинии
+      if (stroke.type === 'trendline') {
+        [stroke.points[0], stroke.points[1]].forEach(pt => {
+          if (!pt) return;
+          const x = chart.timeScale().timeToCoordinate(pt.time as any);
+          const y = series.priceToCoordinate(pt.price);
+          if (x === null || y === null) return;
+          ctx.beginPath();
+          ctx.arc(x, y, 4, 0, Math.PI * 2);
+          ctx.fillStyle = stroke.color;
+          ctx.fill();
+        });
+      }
+    };
+
+    for (const stroke of strokesRef.current) drawStroke(stroke);
+
+    // Текущий мазок (brush)
+    if (currentStroke.current) drawStroke(currentStroke.current);
+
+    // Превью trendline: первая точка есть, вторая ещё не поставлена
+    if (activeTool === 'trendline' && trendStart.current && mousePos.current) {
+      drawStroke(
+        {
+          id: 'preview', type: 'trendline',
+          points: [trendStart.current],
+          color: TRENDLINE_COLOR, width: TRENDLINE_WIDTH,
+        },
+        mousePos.current,
+      );
+    }
+  }, [chart, series, activeTool]);
+
+  // ―― ResizeObserver ――
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -114,6 +167,7 @@ export const CanvasOverlay: React.FC<Props> = ({ chart, series, isDrawingMode })
     return () => ro.disconnect();
   }, []);
 
+  // ―― RAF + scale subscription ――
   useEffect(() => {
     if (!chart || !series) return;
     const loop = () => { render(); rafRef.current = requestAnimationFrame(loop); };
@@ -128,39 +182,71 @@ export const CanvasOverlay: React.FC<Props> = ({ chart, series, isDrawingMode })
     };
   }, [chart, series, render]);
 
+  // ―― Загрузка при смене инструмента ――
   useEffect(() => {
     strokesRef.current = [];
+    trendStart.current = null;
     loadDrawings();
   }, [exchange, symbol, timeframe, loadDrawings]);
 
-  const handleMouseDown = (e: React.MouseEvent) => {
-    if (!isDrawingMode || !chart || !series) return;
-    isMouseDown.current = true;
+  // ―― Mouse handlers ――
+  const getTimePriceFromEvent = (e: React.MouseEvent) => {
     const rect = canvasRef.current!.getBoundingClientRect();
-    const time  = chart.timeScale().coordinateToTime(e.clientX - rect.left);
-    const price = series.coordinateToPrice(e.clientY - rect.top);
-    if (time !== null && price !== null) {
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const time  = chart!.timeScale().coordinateToTime(x);
+    const price = series!.coordinateToPrice(y);
+    return { time, price, x, y };
+  };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (!activeTool || !chart || !series) return;
+
+    const { time, price } = getTimePriceFromEvent(e);
+    if (time === null || price === null) return;
+
+    if (activeTool === 'brush') {
+      isMouseDown.current = true;
       currentStroke.current = {
-        id: `tmp-${Date.now()}`,
+        id: `tmp-${Date.now()}`, type: 'brush',
         points: [{ time: time as number, price }],
-        color: '#FFD600',
-        width: 2,
+        color: BRUSH_COLOR, width: BRUSH_WIDTH,
       };
+    }
+
+    if (activeTool === 'trendline') {
+      if (!trendStart.current) {
+        // Первый клик — фиксируем точку A
+        trendStart.current = { time: time as number, price };
+      } else {
+        // Второй клик — фиксируем точку B и сохраняем
+        const stroke: Stroke = {
+          id: `tmp-${Date.now()}`, type: 'trendline',
+          points: [trendStart.current, { time: time as number, price }],
+          color: TRENDLINE_COLOR, width: TRENDLINE_WIDTH,
+        };
+        strokesRef.current = [...strokesRef.current, stroke];
+        saveStroke(stroke);
+        trendStart.current = null;
+        mousePos.current   = null;
+      }
     }
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isMouseDown.current || !currentStroke.current || !chart || !series) return;
     const rect = canvasRef.current!.getBoundingClientRect();
-    const time  = chart.timeScale().coordinateToTime(e.clientX - rect.left);
-    const price = series.coordinateToPrice(e.clientY - rect.top);
-    if (time !== null && price !== null) {
-      currentStroke.current.points.push({ time: time as number, price });
+    mousePos.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+
+    if (activeTool === 'brush' && isMouseDown.current && currentStroke.current && chart && series) {
+      const { time, price } = getTimePriceFromEvent(e);
+      if (time !== null && price !== null) {
+        currentStroke.current.points.push({ time: time as number, price });
+      }
     }
   };
 
   const handleMouseUp = () => {
-    if (isMouseDown.current && currentStroke.current && currentStroke.current.points.length > 1) {
+    if (activeTool === 'brush' && isMouseDown.current && currentStroke.current && currentStroke.current.points.length > 1) {
       const stroke = { ...currentStroke.current };
       strokesRef.current = [...strokesRef.current, stroke];
       saveStroke(stroke);
@@ -169,19 +255,22 @@ export const CanvasOverlay: React.FC<Props> = ({ chart, series, isDrawingMode })
     isMouseDown.current   = false;
   };
 
+  const isActive = activeTool !== null;
+
   return (
     <canvas
       ref={canvasRef}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
-      onMouseLeave={handleMouseUp}
+      onMouseLeave={() => { mousePos.current = null; handleMouseUp(); }}
       style={{
-        position: 'absolute',
-        top: 0, left: 0,
+        position: 'absolute', top: 0, left: 0,
         width: '100%', height: '100%',
-        pointerEvents: isDrawingMode ? 'auto' : 'none',
-        cursor: isDrawingMode ? 'crosshair' : 'default',
+        pointerEvents: isActive ? 'auto' : 'none',
+        cursor: isActive
+          ? activeTool === 'trendline' ? 'crosshair' : 'crosshair'
+          : 'default',
         zIndex: 50,
       }}
     />

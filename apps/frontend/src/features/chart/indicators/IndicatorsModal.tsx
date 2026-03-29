@@ -15,10 +15,11 @@ export const IndicatorsModal: React.FC<IndicatorsModalProps> = ({ onClose }) => 
 
   const handleAdd = (meta: IndicatorMeta) => {
     if (meta.type === 'sma') {
-      // создаём с дефолтными параметрами, но сразу открываем форму
+      // Генерируем id здесь, чтобы гарантированно передать его в addIndicator и setEditingId
       const id = `${meta.type}_${Date.now()}`;
-      addIndicator(meta.type, { ...meta.defaultParams, idOverride: id });
+      addIndicator('sma', { ...meta.defaultParams, id });
       setEditingId(id);
+      return;
     }
     if (meta.type === 'volume') {
       addIndicator('volume', meta.defaultParams);
@@ -102,8 +103,15 @@ export const IndicatorsModal: React.FC<IndicatorsModalProps> = ({ onClose }) => 
               {indicators.length > 0 && (
                 <ul style={{ paddingLeft: 18, marginTop: 4 }}>
                   {indicators.map((ind) => (
-                    <li key={ind.id} style={{ fontSize: 12 }}>
+                    <li
+                      key={ind.id}
+                      style={{ fontSize: 12, cursor: ind.type === 'sma' ? 'pointer' : 'default' }}
+                      onClick={() => ind.type === 'sma' && setEditingId(ind.id)}
+                    >
                       {ind.type.toUpperCase()} (id: {ind.id})
+                      {ind.type === 'sma' && (
+                        <span style={{ marginLeft: 8, fontSize: 10, color: '#2962FF' }}>✎ настройки</span>
+                      )}
                     </li>
                   ))}
                 </ul>

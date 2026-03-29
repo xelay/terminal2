@@ -1,11 +1,13 @@
  import React, { useState } from 'react';
 import { ChartView } from '../features/chart/ChartView';
+import { IndicatorsModal } from '../features/chart/indicators/IndicatorsModal';
 import { useWorkspaceStore } from '../store/workspace';
 import '../styles/globals.css';
 
 export const App: React.FC = () => {
   const { exchange, symbol, timeframe, setTimeframe, setSymbol } = useWorkspaceStore();
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isIndicatorsOpen, setIsIndicatorsOpen] = useState(false);
 
   return (
     <div className="terminal-layout" style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#131722', color: 'white' }}>
@@ -27,6 +29,14 @@ export const App: React.FC = () => {
             </button>
           ))}
         </div>
+
+        {/* Кнопка открытия панели индикаторов */}
+        <button
+          onClick={() => setIsIndicatorsOpen(true)}
+          style={{ background: '#2b2b43', color: 'white', border: 'none', padding: '8px 16px', borderRadius: '4px', cursor: 'pointer', marginLeft: 'auto' }}
+        >
+          Индикаторы
+        </button>
       </header>
 
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
@@ -41,6 +51,11 @@ export const App: React.FC = () => {
           <ChartView />
         </main>
       </div>
+
+      {/* Модалка индикаторов */}
+      {isIndicatorsOpen && (
+        <IndicatorsModal onClose={() => setIsIndicatorsOpen(false)} />
+      )}
 
       {/* Модалка поиска (пример реализации) */}
       {isSearchOpen && (
@@ -59,4 +74,3 @@ export const App: React.FC = () => {
     </div>
   );
 };
-

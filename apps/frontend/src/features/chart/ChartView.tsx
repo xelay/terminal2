@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import {
   LogicalRange,
   Time,
@@ -10,7 +10,6 @@ import { io, Socket } from 'socket.io-client';
 import { useWorkspaceStore } from '../../store/workspace';
 import { useLightweightChart } from './lwc/useLightweightChart';
 
-// Маппинг таймфреймов в секунды (для расчета fromTime при догрузке истории)
 const tfToSeconds: Record<string, number> = {
   '1m': 60,
   '5m': 300,
@@ -21,7 +20,7 @@ const tfToSeconds: Record<string, number> = {
 };
 
 type Candle = {
-  time: number; // unix в секундах
+  time: number;
   open: number;
   high: number;
   low: number;
@@ -31,77 +30,84 @@ type Candle = {
 
 export const ChartView: React.FC = () => {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const { chartRef, candleSeriesRef, volumeSeriesRef, smaSeriesRef } =
+  const { chartRef, candleSeriesRef, volumeSeriesRef, smaSeriesMapRef } =
     useLightweightChart(containerRef);
 
   const { exchange, symbol, timeframe, indicators } = useWorkspaceStore();
 
-  const [socket, setSocket] = useState<Socket | null>(null);
-
+  const socketRef = useRef<Socket | null>(null);
   const candlesDataRef = useRef<Candle[]>([]);
-  const volumeDataRef = useRef<HistogramData<Time>[]>([]);
-  const smaDataRef = useRef<LineData<Time>[]>([]);
   const isFetchingHistory = useRef(false);
 
-  // Инициализация WebSocket
-  useEffect(() => {
-    const s = io(import.meta.env.VITE_WS_URL || 'http://localhost:3000');
-    setSocket(s);
-    return () => {
-      s.disconnect();
-    };
-  }, []);
+  // Пересчитать и синхронизировать все SMA-серии на графике
+  const syncSMASeries = () => {
+    if (!chartRef.current) return;
 
-  // Хелпер: пересчет объема из текущих свечей
-  const recalcVolumeFromCandles = () => {
+    const smaIndicators = indicators.filter((i) => i.type === 'sma');
+    const map = smaSeriesMapRef.current;
+    const src = candlesDataRef.current;
+
+    // Удалить серии для удалённых индикаторов
+    for (const [id, series] of map.entries()) {
+      if (!smaIndicators.find((i) => i.id === id)) {
+        chartRef.current.removeSeries(series);
+        map.delete(id);
+      }
+    }
+
+    // Добавить/обновить серии для активных индикаторов
+    for (const ind of smaIndicators) {
+      const period = ind.params.period ?? 20;
+      const color = ind.params.color ?? '#2962FF';
+
+      // Создать серию если ещё нет
+      if (!map.has(ind.id)) {
+        const series = chartRef.current.addLineSeries({
+          color,
+          lineWidth: 2,
+          crosshairMarkerVisible: false,
+        });
+        map.set(ind.id, series);
+      }
+
+      const series = map.get(ind.id)!;
+      series.applyOptions({ color });
+
+      if (src.length < period) {
+        series.setData([]);
+        continue;
+      }
+
+      const smaData: LineData<Time>[] = [];
+      for (let i = period - 1; i < src.length; i++) {
+        let sum = 0;
+        for (let j = 0; j < period; j++) sum += src[i - j].close;
+        smaData.push({ time: src[i].time as Time, value: sum / period });
+      }
+      series.setData(smaData);
+    }
+  };
+
+  // Пересчитать объём из текущих свечей
+  const recalcVolume = () => {
     const vols: HistogramData<Time>[] = candlesDataRef.current.map((c) => ({
       time: c.time as Time,
       value: c.volume,
       color: c.close >= c.open ? '#26a69a80' : '#ef535080',
     }));
-    volumeDataRef.current = vols;
     volumeSeriesRef.current?.setData(vols);
   };
 
-  // Хелпер: пересчет SMA из текущих свечей и настроек
-  const recalcSMAFromCandles = () => {
-    const smaIndicator = indicators.find((i) => i.type === 'sma');
-    if (!smaIndicator || !smaSeriesRef.current) {
-      smaSeriesRef.current?.setData([]);
-      smaDataRef.current = [];
-      return;
-    }
-
-    const period = smaIndicator.params.period ?? 20;
-    const color = smaIndicator.params.color ?? '#2962FF';
-    const src = candlesDataRef.current;
-
-    if (src.length < period) {
-      smaSeriesRef.current.setData([]);
-      smaDataRef.current = [];
-      return;
-    }
-
-    const sma: LineData<Time>[] = [];
-
-    for (let i = period - 1; i < src.length; i++) {
-      let sum = 0;
-      for (let j = 0; j < period; j++) {
-        sum += src[i - j].close;
-      }
-      sma.push({
-        time: src[i].time as Time,
-        value: sum / period,
-      });
-    }
-
-    smaDataRef.current = sma;
-    smaSeriesRef.current.setData(sma);
-    smaSeriesRef.current.applyOptions({ color });
-  };
-
-  // Первичная загрузка и подписка на realtime
+  // WebSocket
   useEffect(() => {
+    const s = io(import.meta.env.VITE_WS_URL || 'http://localhost:3000');
+    socketRef.current = s;
+    return () => { s.disconnect(); };
+  }, []);
+
+  // Загрузка данных и подписка на realtime
+  useEffect(() => {
+    const socket = socketRef.current;
     if (!socket || !chartRef.current) return;
 
     const loadInitialData = async () => {
@@ -113,28 +119,28 @@ export const ChartView: React.FC = () => {
         const { candles } = await res.json();
 
         if (candles && candles.length > 0) {
-          const raw: Candle[] = candles
-            .slice()
-            .sort((a: Candle, b: Candle) => a.time - b.time);
-
+          const raw: Candle[] = candles.slice().sort((a: Candle, b: Candle) => a.time - b.time);
           candlesDataRef.current = raw;
 
-          const candleSeriesData: CandlestickData<Time>[] = raw.map((c) => ({
-            time: c.time as Time,
-            open: c.open,
-            high: c.high,
-            low: c.low,
-            close: c.close,
-          }));
-
-          candleSeriesRef.current?.setData(candleSeriesData);
-          recalcVolumeFromCandles();
-          recalcSMAFromCandles();
+          candleSeriesRef.current?.setData(
+            raw.map((c) => ({
+              time: c.time as Time,
+              open: c.open,
+              high: c.high,
+              low: c.low,
+              close: c.close,
+            }))
+          );
+          recalcVolume();
+          syncSMASeries();
         } else {
           candlesDataRef.current = [];
           candleSeriesRef.current?.setData([]);
           volumeSeriesRef.current?.setData([]);
-          smaSeriesRef.current?.setData([]);
+          // Очистить все SMA серии
+          for (const series of smaSeriesMapRef.current.values()) {
+            series.setData([]);
+          }
         }
       } catch (e) {
         console.error('loadInitialData error', e);
@@ -144,31 +150,22 @@ export const ChartView: React.FC = () => {
     };
 
     loadInitialData();
-
     socket.emit('subscribe_chart', { exchange, symbol, tf: timeframe });
 
     const handleCandleUpdate = (payload: any) => {
       if (payload.symbol !== symbol || payload.tf !== timeframe) return;
       const newCandle: Candle = payload.candle;
-
       const current = candlesDataRef.current;
+
       if (current.length > 0) {
         const last = current[current.length - 1];
-
-        if (newCandle.time < last.time) {
-          return; // защита от старых апдейтов
-        }
-
-        if (newCandle.time === last.time) {
-          current[current.length - 1] = newCandle;
-        } else {
-          current.push(newCandle);
-        }
+        if (newCandle.time < last.time) return;
+        if (newCandle.time === last.time) current[current.length - 1] = newCandle;
+        else current.push(newCandle);
       } else {
         current.push(newCandle);
       }
 
-      // обновляем свечу
       candleSeriesRef.current?.update({
         time: newCandle.time as Time,
         open: newCandle.open,
@@ -177,24 +174,14 @@ export const ChartView: React.FC = () => {
         close: newCandle.close,
       });
 
-      // обновляем объем (хвостик)
       const volBar: HistogramData<Time> = {
         time: newCandle.time as Time,
         value: newCandle.volume,
-        color:
-          newCandle.close >= newCandle.open ? '#26a69a80' : '#ef535080',
+        color: newCandle.close >= newCandle.open ? '#26a69a80' : '#ef535080',
       };
       volumeSeriesRef.current?.update(volBar);
 
-      const volArr = volumeDataRef.current;
-      if (volArr.length > 0 && volArr[volArr.length - 1].time === volBar.time) {
-        volArr[volArr.length - 1] = volBar;
-      } else {
-        volArr.push(volBar);
-      }
-
-      // пересчитываем хвостик SMA (упрощённо — по всему массиву)
-      recalcSMAFromCandles();
+      syncSMASeries();
     };
 
     socket.on('candle_update', handleCandleUpdate);
@@ -202,48 +189,26 @@ export const ChartView: React.FC = () => {
     return () => {
       socket.emit('unsubscribe_chart', { exchange, symbol, tf: timeframe });
       socket.off('candle_update', handleCandleUpdate);
+      candlesDataRef.current = [];
       candleSeriesRef.current?.setData([]);
       volumeSeriesRef.current?.setData([]);
-      smaSeriesRef.current?.setData([]);
-      candlesDataRef.current = [];
-      volumeDataRef.current = [];
-      smaDataRef.current = [];
     };
-  }, [
-    exchange,
-    symbol,
-    timeframe,
-    socket,
-    chartRef,
-    candleSeriesRef,
-    volumeSeriesRef,
-    smaSeriesRef,
-    indicators,
-  ]);
+  }, [exchange, symbol, timeframe, chartRef]);
 
-  // Пересчет SMA при изменении настроек индикаторов
+  // Пересинхронизация SMA при изменении индикаторов
   useEffect(() => {
-    if (!chartRef.current) return;
-    recalcSMAFromCandles();
-  }, [indicators, chartRef]);
+    syncSMASeries();
+  }, [indicators]);
 
-  // Пагинация: загрузка старой истории при скролле влево
+  // Пагинация
   useEffect(() => {
     if (!chartRef.current) return;
     const timeScale = chartRef.current.timeScale();
 
-    const onVisibleLogicalRangeChanged = async (
-      newLogicalRange: LogicalRange | null,
-    ) => {
+    const onVisibleLogicalRangeChanged = async (newLogicalRange: LogicalRange | null) => {
       if (!newLogicalRange) return;
-
-      if (
-        newLogicalRange.from < 50 &&
-        !isFetchingHistory.current &&
-        candlesDataRef.current.length > 0
-      ) {
+      if (newLogicalRange.from < 50 && !isFetchingHistory.current && candlesDataRef.current.length > 0) {
         isFetchingHistory.current = true;
-
         try {
           const earliestTime = candlesDataRef.current[0].time;
           const tfSec = tfToSeconds[timeframe] || 60;
@@ -258,26 +223,20 @@ export const ChartView: React.FC = () => {
             const strictOld: Candle[] = fetchedOldCandles.filter(
               (c: Candle) => c.time < earliestTime,
             );
-
             if (strictOld.length > 0) {
-              const mergedRaw = [...strictOld, ...candlesDataRef.current].sort(
-                (a, b) => a.time - b.time,
-              );
-              candlesDataRef.current = mergedRaw;
-
-              const mergedSeries: CandlestickData<Time>[] = mergedRaw.map(
-                (c) => ({
+              const merged = [...strictOld, ...candlesDataRef.current].sort((a, b) => a.time - b.time);
+              candlesDataRef.current = merged;
+              candleSeriesRef.current?.setData(
+                merged.map((c) => ({
                   time: c.time as Time,
                   open: c.open,
                   high: c.high,
                   low: c.low,
                   close: c.close,
-                }),
+                }))
               );
-
-              candleSeriesRef.current?.setData(mergedSeries);
-              recalcVolumeFromCandles();
-              recalcSMAFromCandles();
+              recalcVolume();
+              syncSMASeries();
             }
           }
         } catch (e) {
@@ -290,11 +249,9 @@ export const ChartView: React.FC = () => {
 
     timeScale.subscribeVisibleLogicalRangeChange(onVisibleLogicalRangeChanged);
     return () => {
-      timeScale.unsubscribeVisibleLogicalRangeChange(
-        onVisibleLogicalRangeChanged,
-      );
+      timeScale.unsubscribeVisibleLogicalRangeChange(onVisibleLogicalRangeChanged);
     };
-  }, [exchange, symbol, timeframe, chartRef, candleSeriesRef]);
+  }, [exchange, symbol, timeframe, chartRef]);
 
   return (
     <div

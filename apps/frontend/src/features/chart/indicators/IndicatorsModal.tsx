@@ -8,8 +8,8 @@ interface IndicatorsModalProps {
 }
 
 export const IndicatorsModal: React.FC<IndicatorsModalProps> = ({ onClose }) => {
-  const { indicators, removeAllIndicators } = useWorkspaceStore();
-  // null = список, 'new' = форма создания нового, '<id>' = форма редактирования
+  const { indicators, addIndicator, removeAllIndicators } = useWorkspaceStore();
+  // 'list' = список, 'new' = форма создания, '<id>' = форма редактирования
   const [mode, setMode] = useState<'list' | 'new' | string>('list');
 
   const editingIndicator =
@@ -19,13 +19,11 @@ export const IndicatorsModal: React.FC<IndicatorsModalProps> = ({ onClose }) => 
 
   const handleAddClick = (meta: IndicatorMeta) => {
     if (meta.type === 'sma') {
-      // Открываем форму создания — индикатор будет добавлен только при нажатии «Сохранить» в SMAForm
+      // Открываем форму — индикатор добавится только при нажатии «Сохранить» внутри SMAForm
       setMode('new');
       return;
     }
     if (meta.type === 'volume') {
-      // Volume не требует настройки — добавляем сразу
-      const { addIndicator } = useWorkspaceStoreRaw.getState();
       addIndicator('volume', {});
       onClose();
     }
@@ -60,20 +58,31 @@ export const IndicatorsModal: React.FC<IndicatorsModalProps> = ({ onClose }) => 
         {/* Шапка */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h3 style={{ margin: 0, color: '#fff' }}>
-            {mode === 'list' ? 'Индикаторы' : mode === 'new' ? 'Добавить SMA' : 'Настройки SMA'}
+            {mode === 'list'
+              ? 'Индикаторы'
+              : mode === 'new'
+              ? 'Добавить SMA'
+              : 'Настройки SMA'}
           </h3>
           <button
             onClick={mode === 'list' ? onClose : () => setMode('list')}
-            style={{ background: 'transparent', border: 'none', color: '#d1d4dc', cursor: 'pointer', fontSize: 18 }}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: '#d1d4dc',
+              cursor: 'pointer',
+              fontSize: 16,
+            }}
           >
             {mode === 'list' ? '✕' : '← Назад'}
           </button>
         </div>
 
-        {/* Список */}
+        {/* Список индикаторов */}
         {mode === 'list' && (
           <>
             <div style={{ fontSize: 13, opacity: 0.8 }}>Добавить новый индикатор:</div>
+
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {INDICATORS_REGISTRY.map((meta) => (
                 <button
@@ -98,57 +107,57 @@ export const IndicatorsModal: React.FC<IndicatorsModalProps> = ({ onClose }) => 
 
             <div style={{ fontSize: 13, marginTop: 4 }}>
               Уже добавлены:
-              {indicators.length === 0 && <span style={{ opacity: 0.6 }}> нет активных индикаторов</span>}
+              {indicators.length === 0 && (
+                <span style={{ opacity: 0.6 }}> нет активных индикаторов</span>
+              )}
             </div>
 
             {indicators.length > 0 && (
-              <ul style={{ paddingLeft: 18, margin: 0 }}>
-                {indicators.map((ind) => (
-                  <li
-                    key={ind.id}
-                    style={{
-                      fontSize: 12,
-                      marginBottom: 4,
-                      cursor: ind.type === 'sma' ? 'pointer' : 'default',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 8,
-                    }}
-                  >
-                    <span onClick={() => ind.type === 'sma' && setMode(ind.id)}>
-                      {ind.type.toUpperCase()}
-                      {ind.type === 'sma' && ` (period: ${ind.params.period ?? 20})`}
-                    </span>
-                    {ind.type === 'sma' && (
-                      <span
-                        onClick={() => setMode(ind.id)}
-                        style={{ fontSize: 10, color: '#2962FF', cursor: 'pointer' }}
-                      >
-                        ✎ настройки
+              <>
+                <ul style={{ paddingLeft: 18, margin: 0 }}>
+                  {indicators.map((ind) => (
+                    <li
+                      key={ind.id}
+                      style={{
+                        fontSize: 12,
+                        marginBottom: 4,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                      }}
+                    >
+                      <span>
+                        {ind.type.toUpperCase()}
+                        {ind.type === 'sma' && ` (period: ${ind.params.period ?? 20})`}
                       </span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
+                      {ind.type === 'sma' && (
+                        <span
+                          onClick={() => setMode(ind.id)}
+                          style={{ fontSize: 10, color: '#2962FF', cursor: 'pointer' }}
+                        >
+                          ✎ настройки
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
 
-            {indicators.length > 0 && (
-              <button
-                onClick={() => removeAllIndicators()}
-                style={{
-                  marginTop: 4,
-                  padding: '6px 12px',
-                  borderRadius: 4,
-                  border: '1px solid #ef5350',
-                  color: '#ef5350',
-                  background: 'transparent',
-                  cursor: 'pointer',
-                  fontSize: 12,
-                  alignSelf: 'flex-start',
-                }}
-              >
-                Очистить все индикаторы
-              </button>
+                <button
+                  onClick={() => removeAllIndicators()}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: 4,
+                    border: '1px solid #ef5350',
+                    color: '#ef5350',
+                    background: 'transparent',
+                    cursor: 'pointer',
+                    fontSize: 12,
+                    alignSelf: 'flex-start',
+                  }}
+                >
+                  Очистить все индикаторы
+                </button>
+              </>
             )}
           </>
         )}
@@ -172,6 +181,3 @@ export const IndicatorsModal: React.FC<IndicatorsModalProps> = ({ onClose }) => 
     </div>
   );
 };
-
-// Доступ к store вне хука для volume (без подписки на ре-рендер)
-import { useWorkspaceStore as useWorkspaceStoreRaw } from '../../../store/workspace';

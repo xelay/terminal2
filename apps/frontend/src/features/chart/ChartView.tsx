@@ -39,14 +39,11 @@ export const ChartView: React.FC = () => {
   const candlesDataRef = useRef<Candle[]>([]);
   const isFetchingHistory = useRef(false);
 
-  // Храним актуальный список индикаторов в ref,
-  // чтобы handleCandleUpdate всегда читал свежее значение без пересоздания подписки
   const indicatorsRef = useRef(indicators);
   useEffect(() => {
     indicatorsRef.current = indicators;
   }, [indicators]);
 
-  // Синхронизация SMA-серий — читает из indicatorsRef, а не из замыкания
   const syncSMASeries = () => {
     if (!chartRef.current) return;
 
@@ -54,7 +51,6 @@ export const ChartView: React.FC = () => {
     const map = smaSeriesMapRef.current;
     const src = candlesDataRef.current;
 
-    // Удалить серии для удалённых индикаторов
     for (const [id, series] of map.entries()) {
       if (!smaIndicators.find((i) => i.id === id)) {
         chartRef.current.removeSeries(series);
@@ -62,7 +58,6 @@ export const ChartView: React.FC = () => {
       }
     }
 
-    // Добавить/обновить серии
     for (const ind of smaIndicators) {
       const period = ind.params.period ?? 20;
       const color = ind.params.color ?? '#2962FF';
@@ -72,6 +67,10 @@ export const ChartView: React.FC = () => {
           color,
           lineWidth: 2,
           crosshairMarkerVisible: false,
+          // Убираем пунктирную линию последнего значения
+          priceLineVisible: false,
+          // Убираем лейбл с ценой на шкале цен
+          lastValueVisible: false,
         });
         map.set(ind.id, series);
       }
@@ -103,14 +102,12 @@ export const ChartView: React.FC = () => {
     volumeSeriesRef.current?.setData(vols);
   };
 
-  // WebSocket — создаётся один раз
   useEffect(() => {
     const s = io(import.meta.env.VITE_WS_URL || 'http://localhost:3000');
     socketRef.current = s;
     return () => { s.disconnect(); };
   }, []);
 
-  // Загрузка данных и подписка — пересоздаётся только при смене пары/символа/таймфрейма
   useEffect(() => {
     const socket = socketRef.current;
     if (!socket || !chartRef.current) return;
@@ -182,7 +179,6 @@ export const ChartView: React.FC = () => {
       };
       volumeSeriesRef.current?.update(volBar);
 
-      // Читаем indicatorsRef.current — всегда актуальный список
       syncSMASeries();
     };
 
@@ -197,12 +193,10 @@ export const ChartView: React.FC = () => {
     };
   }, [exchange, symbol, timeframe, chartRef]);
 
-  // Пересинхронизация SMA при изменении индикаторов
   useEffect(() => {
     syncSMASeries();
   }, [indicators]);
 
-  // Пагинация
   useEffect(() => {
     if (!chartRef.current) return;
     const timeScale = chartRef.current.timeScale();

@@ -9,10 +9,10 @@ const BRUSH_COLOR     = '#FFD600';
 const TRENDLINE_COLOR = '#FF4081';
 const BRUSH_WIDTH     = 2;
 const TRENDLINE_WIDTH = 2;
-const HIT_RADIUS      = 10; // px — радиус попадания для даблклика
+const HIT_RADIUS      = 10;
+const LONG_PRESS_MS   = 500;
 
 interface DrawingPoint { time: number; price: number; }
-
 interface Stroke {
   id: string;
   type: 'brush' | 'trendline';
@@ -20,14 +20,12 @@ interface Stroke {
   color: string;
   width: number;
 }
-
 interface Props {
   chart: IChartApi | null;
   series: ISeriesApi<'Candlestick'> | null;
   activeTool: DrawingTool;
 }
 
-// Расстояние от точки (px,py) до отрезка (ax,ay)-(bx,by)
 function distToSegment(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
   const dx = bx - ax, dy = by - ay;
   const lenSq = dx * dx + dy * dy;
@@ -44,6 +42,14 @@ export const CanvasOverlay: React.FC<Props> = ({ chart, series, activeTool }) =>
   const mousePos      = useRef<{ x: number; y: number } | null>(null);
   const isMouseDown   = useRef(false);
   const rafRef        = useRef<number>(0);
+
+  // Long press
+  const longPressTimer   = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressStart   = useRef<number>(0);        // timestamp
+  const longPressPos     = useRef<{ x: number; y: number } | null>(null);
+  const longPressFired   = useRef(false);            // сработал ли триггер
+  const longPressProgress = useRef<number>(0);       // 0..1 для анимации
+  const progressRafRef   = useRef<number>(0);
 
   const { exchange, symbol, timeframe } = useWorkspaceStore();
   const getToken = () => localStorage.getItem('jwt_token');
@@ -84,9 +90,7 @@ export const CanvasOverlay: React.FC<Props> = ({ chart, series, activeTool }) =>
   }, [exchange, symbol, timeframe]);
 
   const deleteStroke = useCallback(async (id: string) => {
-    // Удаляем локально сразу
     strokesRef.current = strokesRef.current.filter(s => s.id !== id);
-    // tmp-ид ещё не сохранён в БД — не делаем DELETE
     if (id.startsWith('tmp-')) return;
     const token = getToken();
     if (!token) return;
@@ -98,12 +102,11 @@ export const CanvasOverlay: React.FC<Props> = ({ chart, series, activeTool }) =>
     } catch { /* silent */ }
   }, []);
 
-  // ―― Hit-test: найти ближайший stroke к курсору ――
+  // ―― Hit-test ――
   const findStrokeAt = useCallback((cx: number, cy: number): Stroke | null => {
     if (!chart || !series) return null;
     let best: Stroke | null = null;
     let bestDist = HIT_RADIUS;
-
     for (const stroke of strokesRef.current) {
       if (stroke.type === 'trendline' && stroke.points.length >= 2) {
         const A = stroke.points[0], B = stroke.points[1];
@@ -115,7 +118,6 @@ export const CanvasOverlay: React.FC<Props> = ({ chart, series, activeTool }) =>
         const d = distToSegment(cx, cy, ax, ay, bx, by);
         if (d < bestDist) { bestDist = d; best = stroke; }
       } else if (stroke.type === 'brush') {
-        // Проверяем каждый отрезок цепочки
         const pts = stroke.points;
         for (let i = 0; i < pts.length - 1; i++) {
           const ax = chart.timeScale().timeToCoordinate(pts[i].time as any);
@@ -131,6 +133,42 @@ export const CanvasOverlay: React.FC<Props> = ({ chart, series, activeTool }) =>
     return best;
   }, [chart, series]);
 
+  // ―― Long press helpers ――
+  const cancelLongPress = () => {
+    if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
+    cancelAnimationFrame(progressRafRef.current);
+    longPressProgress.current = 0;
+    longPressFired.current    = false;
+    longPressPos.current      = null;
+  };
+
+  const startLongPress = (x: number, y: number) => {
+    cancelLongPress();
+    longPressStart.current = performance.now();
+    longPressPos.current   = { x, y };
+    longPressFired.current = false;
+
+    // Анимируем прогресс-дугу на canvas
+    const animateProgress = () => {
+      const elapsed = performance.now() - longPressStart.current;
+      longPressProgress.current = Math.min(elapsed / LONG_PRESS_MS, 1);
+      if (longPressProgress.current < 1 && longPressPos.current) {
+        progressRafRef.current = requestAnimationFrame(animateProgress);
+      }
+    };
+    progressRafRef.current = requestAnimationFrame(animateProgress);
+
+    longPressTimer.current = setTimeout(() => {
+      longPressFired.current = true;
+      longPressProgress.current = 0;
+      if (longPressPos.current) {
+        const hit = findStrokeAt(longPressPos.current.x, longPressPos.current.y);
+        if (hit) deleteStroke(hit.id);
+      }
+      longPressPos.current = null;
+    }, LONG_PRESS_MS);
+  };
+
   // ―― Render ――
   const render = useCallback(() => {
     const canvas = canvasRef.current;
@@ -145,10 +183,8 @@ export const CanvasOverlay: React.FC<Props> = ({ chart, series, activeTool }) =>
       ctx.lineWidth   = stroke.width;
       ctx.lineJoin    = 'round';
       ctx.lineCap     = 'round';
-
       if (stroke.type === 'trendline') {
-        const A = stroke.points[0];
-        const B = stroke.points[1];
+        const A = stroke.points[0], B = stroke.points[1];
         if (!A) return;
         const ax = chart.timeScale().timeToCoordinate(A.time as any);
         const ay = series.priceToCoordinate(A.price);
@@ -171,17 +207,14 @@ export const CanvasOverlay: React.FC<Props> = ({ chart, series, activeTool }) =>
         }
       }
       ctx.stroke();
-
       if (stroke.type === 'trendline') {
         [stroke.points[0], stroke.points[1]].forEach(pt => {
           if (!pt) return;
           const x = chart.timeScale().timeToCoordinate(pt.time as any);
           const y = series.priceToCoordinate(pt.price);
           if (x === null || y === null) return;
-          ctx.beginPath();
-          ctx.arc(x, y, 4, 0, Math.PI * 2);
-          ctx.fillStyle = stroke.color;
-          ctx.fill();
+          ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2);
+          ctx.fillStyle = stroke.color; ctx.fill();
         });
       }
     };
@@ -196,7 +229,7 @@ export const CanvasOverlay: React.FC<Props> = ({ chart, series, activeTool }) =>
       );
     }
 
-    // Подсветка ближайшего stroke при ховере (положение мыши есть)
+    // Hover highlight
     if (mousePos.current && activeTool) {
       const hovered = findStrokeAt(mousePos.current.x, mousePos.current.y);
       if (hovered) {
@@ -204,8 +237,7 @@ export const CanvasOverlay: React.FC<Props> = ({ chart, series, activeTool }) =>
         ctx.globalAlpha = 0.35;
         ctx.strokeStyle = '#ffffff';
         ctx.lineWidth   = hovered.width + 6;
-        ctx.lineJoin    = 'round';
-        ctx.lineCap     = 'round';
+        ctx.lineJoin = 'round'; ctx.lineCap = 'round';
         ctx.beginPath();
         if (hovered.type === 'trendline' && hovered.points.length >= 2) {
           const A = hovered.points[0], B = hovered.points[1];
@@ -213,9 +245,7 @@ export const CanvasOverlay: React.FC<Props> = ({ chart, series, activeTool }) =>
           const ay = series.priceToCoordinate(A.price);
           const bx = chart.timeScale().timeToCoordinate(B.time as any);
           const by = series.priceToCoordinate(B.price);
-          if (ax !== null && ay !== null && bx !== null && by !== null) {
-            ctx.moveTo(ax, ay); ctx.lineTo(bx, by);
-          }
+          if (ax !== null && ay !== null && bx !== null && by !== null) { ctx.moveTo(ax, ay); ctx.lineTo(bx, by); }
         } else {
           let first = true;
           for (const pt of hovered.points) {
@@ -228,6 +258,26 @@ export const CanvasOverlay: React.FC<Props> = ({ chart, series, activeTool }) =>
         ctx.stroke();
         ctx.restore();
       }
+    }
+
+    // Прогресс-дуга long press: дуга вокруг курсора
+    const p = longPressProgress.current;
+    const lp = longPressPos.current;
+    if (p > 0 && lp) {
+      ctx.save();
+      // Фоновая дужка
+      ctx.beginPath();
+      ctx.arc(lp.x, lp.y, 16, 0, Math.PI * 2);
+      ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      // Активная дужка
+      ctx.beginPath();
+      ctx.arc(lp.x, lp.y, 16, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * p);
+      ctx.strokeStyle = '#FF4081';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.restore();
     }
   }, [chart, series, activeTool, findStrokeAt]);
 
@@ -271,15 +321,17 @@ export const CanvasOverlay: React.FC<Props> = ({ chart, series, activeTool }) =>
     const rect = canvasRef.current!.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
-    const time  = chart!.timeScale().coordinateToTime(x);
-    const price = series!.coordinateToPrice(y);
-    return { time, price, x, y };
+    return { time: chart!.timeScale().coordinateToTime(x), price: series!.coordinateToPrice(y), x, y };
   };
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if (!activeTool || !chart || !series) return;
-    const { time, price } = getCoords(e);
+    const { x, y, time, price } = getCoords(e);
     if (time === null || price === null) return;
+
+    // Запускаем long press если есть что-то под курсором
+    const hit = findStrokeAt(x, y);
+    if (hit) { startLongPress(x, y); return; }
 
     if (activeTool === 'brush') {
       isMouseDown.current = true;
@@ -289,7 +341,6 @@ export const CanvasOverlay: React.FC<Props> = ({ chart, series, activeTool }) =>
         color: BRUSH_COLOR, width: BRUSH_WIDTH,
       };
     }
-
     if (activeTool === 'trendline') {
       if (!trendStart.current) {
         trendStart.current = { time: time as number, price };
@@ -309,7 +360,17 @@ export const CanvasOverlay: React.FC<Props> = ({ chart, series, activeTool }) =>
 
   const handleMouseMove = (e: React.MouseEvent) => {
     const rect = canvasRef.current!.getBoundingClientRect();
-    mousePos.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    mousePos.current = { x, y };
+
+    // Движение отменяет long press
+    if (longPressPos.current) {
+      const dx = x - longPressPos.current.x;
+      const dy = y - longPressPos.current.y;
+      if (Math.hypot(dx, dy) > 5) cancelLongPress();
+    }
+
     if (activeTool === 'brush' && isMouseDown.current && currentStroke.current && chart && series) {
       const { time, price } = getCoords(e);
       if (time !== null && price !== null) {
@@ -319,22 +380,15 @@ export const CanvasOverlay: React.FC<Props> = ({ chart, series, activeTool }) =>
   };
 
   const handleMouseUp = () => {
-    if (activeTool === 'brush' && isMouseDown.current && currentStroke.current && currentStroke.current.points.length > 1) {
+    cancelLongPress();
+    if (!longPressFired.current && activeTool === 'brush' && isMouseDown.current &&
+      currentStroke.current && currentStroke.current.points.length > 1) {
       const stroke = { ...currentStroke.current };
       strokesRef.current = [...strokesRef.current, stroke];
       saveStroke(stroke);
     }
     currentStroke.current = null;
     isMouseDown.current   = false;
-  };
-
-  const handleDoubleClick = (e: React.MouseEvent) => {
-    if (!activeTool || !chart || !series) return;
-    const rect = canvasRef.current!.getBoundingClientRect();
-    const cx = e.clientX - rect.left;
-    const cy = e.clientY - rect.top;
-    const hit = findStrokeAt(cx, cy);
-    if (hit) deleteStroke(hit.id);
   };
 
   const isActive = activeTool !== null;
@@ -345,8 +399,7 @@ export const CanvasOverlay: React.FC<Props> = ({ chart, series, activeTool }) =>
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
-      onMouseLeave={() => { mousePos.current = null; handleMouseUp(); }}
-      onDoubleClick={handleDoubleClick}
+      onMouseLeave={() => { mousePos.current = null; cancelLongPress(); handleMouseUp(); }}
       style={{
         position: 'absolute', top: 0, left: 0,
         width: '100%', height: '100%',

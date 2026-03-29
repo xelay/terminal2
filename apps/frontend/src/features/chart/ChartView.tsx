@@ -39,11 +39,18 @@ export const ChartView: React.FC = () => {
   const candlesDataRef = useRef<Candle[]>([]);
   const isFetchingHistory = useRef(false);
 
-  // Пересчитать и синхронизировать все SMA-серии на графике
+  // Храним актуальный список индикаторов в ref,
+  // чтобы handleCandleUpdate всегда читал свежее значение без пересоздания подписки
+  const indicatorsRef = useRef(indicators);
+  useEffect(() => {
+    indicatorsRef.current = indicators;
+  }, [indicators]);
+
+  // Синхронизация SMA-серий — читает из indicatorsRef, а не из замыкания
   const syncSMASeries = () => {
     if (!chartRef.current) return;
 
-    const smaIndicators = indicators.filter((i) => i.type === 'sma');
+    const smaIndicators = indicatorsRef.current.filter((i) => i.type === 'sma');
     const map = smaSeriesMapRef.current;
     const src = candlesDataRef.current;
 
@@ -55,12 +62,11 @@ export const ChartView: React.FC = () => {
       }
     }
 
-    // Добавить/обновить серии для активных индикаторов
+    // Добавить/обновить серии
     for (const ind of smaIndicators) {
       const period = ind.params.period ?? 20;
       const color = ind.params.color ?? '#2962FF';
 
-      // Создать серию если ещё нет
       if (!map.has(ind.id)) {
         const series = chartRef.current.addLineSeries({
           color,
@@ -88,7 +94,6 @@ export const ChartView: React.FC = () => {
     }
   };
 
-  // Пересчитать объём из текущих свечей
   const recalcVolume = () => {
     const vols: HistogramData<Time>[] = candlesDataRef.current.map((c) => ({
       time: c.time as Time,
@@ -98,14 +103,14 @@ export const ChartView: React.FC = () => {
     volumeSeriesRef.current?.setData(vols);
   };
 
-  // WebSocket
+  // WebSocket — создаётся один раз
   useEffect(() => {
     const s = io(import.meta.env.VITE_WS_URL || 'http://localhost:3000');
     socketRef.current = s;
     return () => { s.disconnect(); };
   }, []);
 
-  // Загрузка данных и подписка на realtime
+  // Загрузка данных и подписка — пересоздаётся только при смене пары/символа/таймфрейма
   useEffect(() => {
     const socket = socketRef.current;
     if (!socket || !chartRef.current) return;
@@ -121,7 +126,6 @@ export const ChartView: React.FC = () => {
         if (candles && candles.length > 0) {
           const raw: Candle[] = candles.slice().sort((a: Candle, b: Candle) => a.time - b.time);
           candlesDataRef.current = raw;
-
           candleSeriesRef.current?.setData(
             raw.map((c) => ({
               time: c.time as Time,
@@ -137,10 +141,7 @@ export const ChartView: React.FC = () => {
           candlesDataRef.current = [];
           candleSeriesRef.current?.setData([]);
           volumeSeriesRef.current?.setData([]);
-          // Очистить все SMA серии
-          for (const series of smaSeriesMapRef.current.values()) {
-            series.setData([]);
-          }
+          for (const series of smaSeriesMapRef.current.values()) series.setData([]);
         }
       } catch (e) {
         console.error('loadInitialData error', e);
@@ -181,6 +182,7 @@ export const ChartView: React.FC = () => {
       };
       volumeSeriesRef.current?.update(volBar);
 
+      // Читаем indicatorsRef.current — всегда актуальный список
       syncSMASeries();
     };
 
@@ -220,14 +222,14 @@ export const ChartView: React.FC = () => {
           const { candles: fetchedOldCandles } = await res.json();
 
           if (fetchedOldCandles && fetchedOldCandles.length > 0) {
-            const strictOld: Candle[] = fetchedOldCandles.filter(
+            const strictOld = fetchedOldCandles.filter(
               (c: Candle) => c.time < earliestTime,
             );
             if (strictOld.length > 0) {
-              const merged = [...strictOld, ...candlesDataRef.current].sort((a, b) => a.time - b.time);
+              const merged = [...strictOld, ...candlesDataRef.current].sort((a: Candle, b: Candle) => a.time - b.time);
               candlesDataRef.current = merged;
               candleSeriesRef.current?.setData(
-                merged.map((c) => ({
+                merged.map((c: Candle) => ({
                   time: c.time as Time,
                   open: c.open,
                   high: c.high,

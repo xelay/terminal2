@@ -78,13 +78,19 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       setSymbol: (exchange, symbol) => set({ exchange, symbol }),
       setTimeframe: (timeframe) => set({ timeframe }),
 
+      // Принимает опциональный id в params.id для детерминированного id индикатора
       addIndicator: (type, params) =>
-        set((state) => ({
-          indicators: [
-            ...state.indicators,
-            { id: `${type}_${Date.now()}`, type, params },
-          ],
-        })),
+        set((state) => {
+          const id = params.id ?? `${type}_${Date.now()}`;
+          const cleanParams = { ...params };
+          delete cleanParams.id;
+          return {
+            indicators: [
+              ...state.indicators,
+              { id, type, params: cleanParams },
+            ],
+          };
+        }),
 
       updateIndicator: (id, params) =>
         set((state) => ({

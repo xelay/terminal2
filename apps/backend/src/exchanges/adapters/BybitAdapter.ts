@@ -6,30 +6,22 @@ export class BybitAdapter implements ExchangeAdapter {
   private client: pro.bybit;
   private activeSubscriptions = new Map<string, boolean>();
 
-  // Маппинг наших TF в форматы CCXT
   private tfMap: Record<Timeframe, string> = {
     '1m': '1m', '5m': '5m', '15m': '15m',
-    '1h': '1h', '4h': '4h', '1d': '1d'
+    '1h': '1h', '4h': '4h', '1d': '1d',
+    '1w': '1w', '1M': '1M',
   };
 
   constructor() {
-    this.client = new pro.bybit({
-      enableRateLimit: true,
-      newUpdates: true, // Генерировать события только при новых данных
-    });
+    this.client = new pro.bybit({ enableRateLimit: true, newUpdates: true });
   }
 
   async getHistoricalCandles(symbol: string, timeframe: Timeframe, fromTime?: number, limit = 500): Promise<Candle[]> {
-    const since = fromTime ? fromTime * 1000 : undefined; // CCXT ждет миллисекунды
+    const since = fromTime ? fromTime * 1000 : undefined;
     const ohlcv = await this.client.fetchOHLCV(symbol, this.tfMap[timeframe], since, limit);
-    
-    return ohlcv.map((candle: any) => ({
-      time: Math.floor((candle[0] as number) / 1000), // Переводим в секунды для Lightweight Charts
-      open: candle[1] as number,
-      high: candle[2] as number,
-      low: candle[3] as number,
-      close: candle[4] as number,
-      volume: candle[5] as number,
+    return ohlcv.map((c: any) => ({
+      time: Math.floor((c[0] as number) / 1000),
+      open: c[1], high: c[2], low: c[3], close: c[4], volume: c[5],
     }));
   }
 
@@ -46,28 +38,17 @@ export class BybitAdapter implements ExchangeAdapter {
             const latest = ohlcv[ohlcv.length - 1];
             onCandleUpdate({
               time: Math.floor((latest[0] as number) / 1000),
-              open: latest[1] as number,
-              high: latest[2] as number,
-              low: latest[3] as number,
-              close: latest[4] as number,
-              volume: latest[5] as number,
+              open: latest[1], high: latest[2], low: latest[3], close: latest[4], volume: latest[5],
             });
           }
         } catch (e) {
           console.error(`Bybit WS Error [${symbol}]:`, e);
-          // Делаем паузу перед реконнектом
-          await new Promise(res => setTimeout(res, 5000)); 
+          await new Promise(res => setTimeout(res, 5000));
         }
       }
     };
-
     watchLoop();
-
-    // Возвращаем функцию отписки
-    return () => {
-      this.activeSubscriptions.set(subKey, false);
-      // В ccxt.pro нет явной отписки watchOHLCV, остановка цикла прекратит обработку
-    };
+    return () => { this.activeSubscriptions.set(subKey, false); };
   }
 
   async searchSymbols(query: string): Promise<string[]> {

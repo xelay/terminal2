@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage, StateStorage } from 'zustand/middleware';
 
-export type Timeframe = '1m' | '5m' | '15m' | '1h' | '4h' | '1d';
+export type Timeframe = '1m' | '5m' | '15m' | '1h' | '4h' | '1d' | '1w' | '1M';
 
 export type IndicatorType = 'sma' | 'volume';
 
@@ -19,7 +19,6 @@ interface WorkspaceState {
 
   setSymbol: (exchange: string, symbol: string) => void;
   setTimeframe: (tf: Timeframe) => void;
-
   addIndicator: (type: IndicatorType, params: any) => void;
   updateIndicator: (id: string, params: any) => void;
   removeIndicator: (id: string) => void;
@@ -41,7 +40,6 @@ const apiStorage: StateStorage = {
     } catch {}
     return null;
   },
-
   setItem: async (name: string, value: string): Promise<void> => {
     const token = localStorage.getItem('jwt_token');
     if (!token) { localStorage.setItem(name, value); return; }
@@ -54,7 +52,6 @@ const apiStorage: StateStorage = {
       });
     } catch {}
   },
-
   removeItem: async (name: string): Promise<void> => {
     localStorage.removeItem(name);
   },
@@ -66,7 +63,6 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       exchange: 'bybit',
       symbol: 'BTC/USDT',
       timeframe: '15m',
-      // По дефолту индикаторов нет — пользователь добавляет их вручную
       indicators: [],
 
       setSymbol: (exchange, symbol) => set({ exchange, symbol }),
@@ -76,9 +72,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         set((state) => {
           const id = `${type}_${Date.now()}`;
           if (state.indicators.find((i) => i.id === id)) return state;
-          return {
-            indicators: [...state.indicators, { id, type, params }],
-          };
+          return { indicators: [...state.indicators, { id, type, params }] };
         }),
 
       updateIndicator: (id, params) =>

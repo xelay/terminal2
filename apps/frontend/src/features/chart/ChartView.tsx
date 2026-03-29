@@ -1,17 +1,14 @@
 import React, { useEffect, useRef } from 'react';
-import {
-  LogicalRange,
-  Time,
-  HistogramData,
-  LineData,
-} from 'lightweight-charts';
+import { LogicalRange, Time, HistogramData, LineData } from 'lightweight-charts';
 import { io, Socket } from 'socket.io-client';
 import { useWorkspaceStore } from '../../store/workspace';
 import { useLightweightChart } from './lwc/useLightweightChart';
 import { useChartRefs } from './ChartRefsContext';
 
 const tfToSeconds: Record<string, number> = {
-  '1m': 60, '5m': 300, '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400,
+  '1m': 60, '5m': 300, '15m': 900,
+  '1h': 3600, '4h': 14400, '1d': 86400,
+  '1w': 604800, '1M': 2592000,
 };
 
 type Candle = {
@@ -29,11 +26,10 @@ export const ChartView: React.FC = () => {
   const socketRef = useRef<Socket | null>(null);
   const candlesDataRef = useRef<Candle[]>([]);
   const isFetchingHistory = useRef(false);
-
   const indicatorsRef = useRef(indicators);
+
   useEffect(() => { indicatorsRef.current = indicators; }, [indicators]);
 
-  // Публикуем рефы после инициализации чарта (один раз, зависимость от containerRef)
   useEffect(() => {
     if (chartRef.current && candleSeriesRef.current) {
       setChartRefs({ chart: chartRef.current, series: candleSeriesRef.current });
@@ -45,8 +41,7 @@ export const ChartView: React.FC = () => {
     const hasVolume = indicatorsRef.current.some((i) => i.type === 'volume');
     if (!hasVolume) { volumeSeriesRef.current?.setData([]); return; }
     const vols: HistogramData<Time>[] = candlesDataRef.current.map((c) => ({
-      time: c.time as Time,
-      value: c.volume,
+      time: c.time as Time, value: c.volume,
       color: c.close >= c.open ? '#26a69a80' : '#ef535080',
     }));
     volumeSeriesRef.current?.setData(vols);
@@ -57,11 +52,9 @@ export const ChartView: React.FC = () => {
     const smaIndicators = indicatorsRef.current.filter((i) => i.type === 'sma');
     const map = smaSeriesMapRef.current;
     const src = candlesDataRef.current;
-
     for (const [id, series] of map.entries()) {
       if (!smaIndicators.find((i) => i.id === id)) {
-        chartRef.current.removeSeries(series);
-        map.delete(id);
+        chartRef.current.removeSeries(series); map.delete(id);
       }
     }
     for (const ind of smaIndicators) {
@@ -110,8 +103,7 @@ export const ChartView: React.FC = () => {
           candleSeriesRef.current?.setData(
             raw.map((c) => ({ time: c.time as Time, open: c.open, high: c.high, low: c.low, close: c.close }))
           );
-          syncVolume();
-          syncSMASeries();
+          syncVolume(); syncSMASeries();
         } else {
           candlesDataRef.current = [];
           candleSeriesRef.current?.setData([]);
@@ -137,9 +129,7 @@ export const ChartView: React.FC = () => {
         if (newCandle.time < last.time) return;
         if (newCandle.time === last.time) current[current.length - 1] = newCandle;
         else current.push(newCandle);
-      } else {
-        current.push(newCandle);
-      }
+      } else { current.push(newCandle); }
       candleSeriesRef.current?.update({
         time: newCandle.time as Time, open: newCandle.open,
         high: newCandle.high, low: newCandle.low, close: newCandle.close,
@@ -163,10 +153,7 @@ export const ChartView: React.FC = () => {
     };
   }, [exchange, symbol, timeframe, chartRef]);
 
-  useEffect(() => {
-    syncVolume();
-    syncSMASeries();
-  }, [indicators]);
+  useEffect(() => { syncVolume(); syncSMASeries(); }, [indicators]);
 
   useEffect(() => {
     if (!chartRef.current) return;
@@ -190,8 +177,7 @@ export const ChartView: React.FC = () => {
               candleSeriesRef.current?.setData(
                 merged.map((c: Candle) => ({ time: c.time as Time, open: c.open, high: c.high, low: c.low, close: c.close }))
               );
-              syncVolume();
-              syncSMASeries();
+              syncVolume(); syncSMASeries();
             }
           }
         } catch (e) {

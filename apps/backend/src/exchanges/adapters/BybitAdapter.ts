@@ -1,5 +1,5 @@
 import ccxt, { pro } from 'ccxt';
-import { ExchangeAdapter, Candle, Timeframe } from '../types';
+import { ExchangeAdapter, Candle, Timeframe, SymbolResult } from '../types';
 
 export class BybitAdapter implements ExchangeAdapter {
   public id = 'bybit';
@@ -29,7 +29,6 @@ export class BybitAdapter implements ExchangeAdapter {
     const ccxtTf = this.tfMap[timeframe];
     const subKey = `${symbol}:${ccxtTf}`;
     this.activeSubscriptions.set(subKey, true);
-
     const watchLoop = async () => {
       while (this.activeSubscriptions.get(subKey)) {
         try {
@@ -51,11 +50,17 @@ export class BybitAdapter implements ExchangeAdapter {
     return () => { this.activeSubscriptions.set(subKey, false); };
   }
 
-  async searchSymbols(query: string): Promise<string[]> {
+  async searchSymbols(query: string): Promise<SymbolResult[]> {
     if (!this.client.markets) await this.client.loadMarkets();
     const upperQuery = query.toUpperCase();
-    return Object.keys(this.client.markets || {})
-      .filter(sym => sym.includes(upperQuery))
-      .slice(0, 20);
+    const markets = this.client.markets || {};
+    return Object.entries(markets)
+      .filter(([sym]) => sym.includes(upperQuery))
+      .slice(0, 20)
+      .map(([sym, market]: [string, any]) => ({
+        exchange: 'bybit',
+        symbol: sym,
+        description: market?.name ?? market?.base ?? sym,
+      }));
   }
 }

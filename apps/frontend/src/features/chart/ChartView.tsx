@@ -29,6 +29,8 @@ export const ChartView: React.FC = () => {
   const socketRef         = useRef<Socket | null>(null);
   const candlesDataRef    = useRef<Candle[]>([]);
   const isFetchingHistory = useRef(false);
+  // Когда MOEX вернул пустой массив — больше не запрашиваем (ресетится при смене символа/тф)
+  const noMoreHistory     = useRef(false);
   const indicatorsRef     = useRef(indicators);
 
   const [visibleRange, setVisibleRange]       = useState<{ from: number; to: number } | null>(null);
@@ -40,7 +42,6 @@ export const ChartView: React.FC = () => {
 
   useEffect(() => { indicatorsRef.current = indicators; }, [indicators]);
 
-  // Пробрасываем ref на свечи в контекст, чтобы RenkoForm мог читать данные
   useEffect(() => {
     setCandlesRef(candlesDataRef);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -181,6 +182,10 @@ export const ChartView: React.FC = () => {
   useEffect(() => {
     const socket = socketRef.current;
     if (!socket || !chartRef.current) return;
+
+    // Сбрасываем флаг при смене символа/таймфрейма
+    noMoreHistory.current = false;
+
     const loadInitialData = async () => {
       try {
         isFetchingHistory.current = true;
@@ -208,8 +213,10 @@ export const ChartView: React.FC = () => {
         isFetchingHistory.current = false;
       }
     };
+
     loadInitialData();
     socket.emit('subscribe_chart', { exchange, symbol, tf: timeframe });
+
     const handleCandleUpdate = (payload: any) => {
       if (payload.symbol !== symbol || payload.tf !== timeframe) return;
       const newCandle: Candle = payload.candle;
@@ -233,6 +240,7 @@ export const ChartView: React.FC = () => {
       syncSMASeries();
       rebuildRenko();
     };
+
     socket.on('candle_update', handleCandleUpdate);
     return () => {
       socket.emit('unsubscribe_chart', { exchange, symbol, tf: timeframe });
@@ -246,36 +254,52 @@ export const ChartView: React.FC = () => {
 
   useEffect(() => { syncVolume(); syncSMASeries(); rebuildRenko(); }, [indicators]);
 
+  // Пагинация назад
   useEffect(() => {
     if (!chartRef.current) return;
     const timeScale = chartRef.current.timeScale();
     const onRange = async (newLogicalRange: LogicalRange | null) => {
       if (!newLogicalRange) return;
-      if (newLogicalRange.from < 50 && !isFetchingHistory.current && candlesDataRef.current.length > 0) {
-        isFetchingHistory.current = true;
-        try {
-          const earliestTime = candlesDataRef.current[0].time;
-          const fromTime = earliestTime - 500 * (tfToSeconds[timeframe] || 60);
-          const res = await fetch(
-            `${import.meta.env.VITE_API_URL}/api/market/history?exchange=${exchange}&symbol=${encodeURIComponent(symbol)}&tf=${timeframe}&limit=500&from=${fromTime}`,
-          );
-          const { candles: old } = await res.json();
-          if (old && old.length > 0) {
-            const strictOld = old.filter((c: Candle) => c.time < earliestTime);
-            if (strictOld.length > 0) {
-              const merged = [...strictOld, ...candlesDataRef.current].sort((a: Candle, b: Candle) => a.time - b.time);
-              candlesDataRef.current = merged;
-              candleSeriesRef.current?.setData(
-                merged.map((c: Candle) => ({ time: c.time as Time, open: c.open, high: c.high, low: c.low, close: c.close }))
-              );
-              syncVolume(); syncSMASeries(); rebuildRenko();
-            }
-          }
-        } catch (e) {
-          console.error('pagination error', e);
-        } finally {
-          isFetchingHistory.current = false;
+      // Не запрашиваем если: идёт загрузка, история кончилась, или не докрутили до левого края
+      if (
+        newLogicalRange.from >= 50 ||
+        isFetchingHistory.current ||
+        noMoreHistory.current ||
+        candlesDataRef.current.length === 0
+      ) return;
+
+      isFetchingHistory.current = true;
+      try {
+        // Передаём время первой свечи как границу — бэк найдёт всё что есть до этой даты
+        const earliestTime = candlesDataRef.current[0].time;
+        const res = await fetch(
+          `${import.meta.env.VITE_API_URL}/api/market/history?exchange=${exchange}&symbol=${encodeURIComponent(symbol)}&tf=${timeframe}&limit=500&from=${earliestTime}`,
+        );
+        const { candles: old } = await res.json();
+
+        if (!old || old.length === 0) {
+          // Больше данных нет — запоминаем это
+          noMoreHistory.current = true;
+          return;
         }
+
+        const strictOld = old.filter((c: Candle) => c.time < earliestTime);
+        if (strictOld.length > 0) {
+          const merged = [...strictOld, ...candlesDataRef.current]
+            .sort((a: Candle, b: Candle) => a.time - b.time);
+          candlesDataRef.current = merged;
+          candleSeriesRef.current?.setData(
+            merged.map((c: Candle) => ({ time: c.time as Time, open: c.open, high: c.high, low: c.low, close: c.close }))
+          );
+          syncVolume(); syncSMASeries(); rebuildRenko();
+        } else {
+          // Сервер вернул данные но все они уже есть — тоже стоп
+          noMoreHistory.current = true;
+        }
+      } catch (e) {
+        console.error('pagination error', e);
+      } finally {
+        isFetchingHistory.current = false;
       }
     };
     timeScale.subscribeVisibleLogicalRangeChange(onRange);

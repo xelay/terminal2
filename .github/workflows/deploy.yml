@@ -40,6 +40,7 @@ jobs:
             ENVEOF
 
             echo "VITE_API_URL=https://trading.kalakala.ru" > ~/terminal2-deployment/apps/frontend/.env
+            echo "VITE_WS_URL=https://trading.kalakala.ru" > ~/terminal2-deployment/apps/frontend/.env
 
             cd ~/terminal2-deployment
             docker compose -f infra/docker-compose.yml down

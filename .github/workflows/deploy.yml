@@ -19,6 +19,7 @@ jobs:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 2233
           source: "."
           target: "~/terminal2-deployment"
           rm: true  # автоматически очищает папку перед копированием
@@ -29,6 +30,7 @@ jobs:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 2233
           script: |
             # Записываем .env
             mkdir -p ~/terminal2-deployment/apps/backend

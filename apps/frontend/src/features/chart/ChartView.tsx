@@ -35,12 +35,10 @@ export const ChartView: React.FC = () => {
   const [containerSize, setContainerSize]     = useState({ width: 0, height: 0 });
   const [priceArea, setPriceArea]             = useState({ top: 0, bottom: 0 });
   const [priceScaleWidth, setPriceScaleWidth] = useState(0);
+  const [overlayTick, setOverlayTick]         = useState(0);
 
-  // Тик пересчёта overlay при любом движении/зуме
-  const [overlayTick, setOverlayTick] = useState(0);
-
-  // Renko blocks — пересчитываются только при изменении данных
-  const [renkoBlocks, setRenkoBlocks] = useState<RenkoBlock[]>([]);
+  // Карта id → блоки — по одному массиву на каждый Renko-индикатор
+  const [renkoBlocksMap, setRenkoBlocksMap] = useState<Record<string, RenkoBlock[]>>({});
 
   useEffect(() => { indicatorsRef.current = indicators; }, [indicators]);
 
@@ -51,7 +49,6 @@ export const ChartView: React.FC = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chartRef.current, candleSeriesRef.current]);
 
-  // ―― Размер контейнера ――
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -62,11 +59,9 @@ export const ChartView: React.FC = () => {
     return () => ro.disconnect();
   }, []);
 
-  // ―― Подписка на движения — обновляем tick, range, priceScale ――
   useEffect(() => {
     if (!chartRef.current) return;
     const ts = chartRef.current.timeScale();
-
     const onTimeChange = () => {
       const r = ts.getVisibleRange();
       if (r) setVisibleRange({ from: Number(r.from), to: Number(r.to) });
@@ -74,10 +69,8 @@ export const ChartView: React.FC = () => {
         const w = (chartRef.current as any).priceScale('right').width();
         if (typeof w === 'number' && w > 0) setPriceScaleWidth(w);
       } catch {}
-      // Форсируем перерисовку overlay
       setOverlayTick(t => t + 1);
     };
-
     onTimeChange();
     ts.subscribeVisibleTimeRangeChange(onTimeChange);
     ts.subscribeVisibleLogicalRangeChange(onTimeChange);
@@ -88,7 +81,6 @@ export const ChartView: React.FC = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chartRef.current]);
 
-  // ―― Ценовая область в px ――
   useEffect(() => {
     if (!chartRef.current || !candleSeriesRef.current) return;
     const update = () => {
@@ -113,20 +105,25 @@ export const ChartView: React.FC = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chartRef.current, candleSeriesRef.current, visibleRange]);
 
-  // ―― Пересчёт блоков Renko ――
+  // Пересчёт блоков для всех Renko-индикаторов
   const rebuildRenko = useCallback(() => {
-    const rkInd = indicatorsRef.current.find(i => i.type === 'renko');
-    if (!rkInd || candlesDataRef.current.length === 0) { setRenkoBlocks([]); return; }
-
+    const rkInds = indicatorsRef.current.filter(i => i.type === 'renko');
+    if (rkInds.length === 0 || candlesDataRef.current.length === 0) {
+      setRenkoBlocksMap({});
+      return;
+    }
     const candles = candlesDataRef.current;
     const refPrice = candles[candles.length - 1].close;
-    let blockSize = rkInd.params.blockSize;
-    if (!blockSize || blockSize <= 0) {
-      const atr = calcATR(candles);
-      blockSize = atr > 0 ? smartRound(atr, refPrice) : smartRound(refPrice * 0.01, refPrice);
+    const newMap: Record<string, RenkoBlock[]> = {};
+    for (const ind of rkInds) {
+      let blockSize = ind.params.blockSize;
+      if (!blockSize || blockSize <= 0) {
+        const atr = calcATR(candles);
+        blockSize = atr > 0 ? smartRound(atr, refPrice) : smartRound(refPrice * 0.01, refPrice);
+      }
+      newMap[ind.id] = buildRenkoBlocks(candles, blockSize, ind.params.source ?? 'close');
     }
-    const blocks = buildRenkoBlocks(candles, blockSize, rkInd.params.source ?? 'close');
-    setRenkoBlocks(blocks);
+    setRenkoBlocksMap(newMap);
   }, []);
 
   const syncVolume = () => {
@@ -181,7 +178,6 @@ export const ChartView: React.FC = () => {
   useEffect(() => {
     const socket = socketRef.current;
     if (!socket || !chartRef.current) return;
-
     const loadInitialData = async () => {
       try {
         isFetchingHistory.current = true;
@@ -201,7 +197,7 @@ export const ChartView: React.FC = () => {
           candleSeriesRef.current?.setData([]);
           volumeSeriesRef.current?.setData([]);
           for (const s of smaSeriesMapRef.current.values()) s.setData([]);
-          setRenkoBlocks([]);
+          setRenkoBlocksMap({});
         }
       } catch (e) {
         console.error('loadInitialData error', e);
@@ -209,10 +205,8 @@ export const ChartView: React.FC = () => {
         isFetchingHistory.current = false;
       }
     };
-
     loadInitialData();
     socket.emit('subscribe_chart', { exchange, symbol, tf: timeframe });
-
     const handleCandleUpdate = (payload: any) => {
       if (payload.symbol !== symbol || payload.tf !== timeframe) return;
       const newCandle: Candle = payload.candle;
@@ -236,7 +230,6 @@ export const ChartView: React.FC = () => {
       syncSMASeries();
       rebuildRenko();
     };
-
     socket.on('candle_update', handleCandleUpdate);
     return () => {
       socket.emit('unsubscribe_chart', { exchange, symbol, tf: timeframe });
@@ -244,7 +237,7 @@ export const ChartView: React.FC = () => {
       candlesDataRef.current = [];
       candleSeriesRef.current?.setData([]);
       volumeSeriesRef.current?.setData([]);
-      setRenkoBlocks([]);
+      setRenkoBlocksMap({});
     };
   }, [exchange, symbol, timeframe, chartRef]);
 
@@ -286,27 +279,31 @@ export const ChartView: React.FC = () => {
     return () => timeScale.unsubscribeVisibleLogicalRangeChange(onRange);
   }, [exchange, symbol, timeframe, chartRef]);
 
-  const vpIndicator = indicators.find(i => i.type === 'volume_profile');
-  const rkIndicator = indicators.find(i => i.type === 'renko');
+  const vpIndicator  = indicators.find(i => i.type === 'volume_profile');
+  const rkIndicators = indicators.filter(i => i.type === 'renko');
 
   return (
     <div ref={containerRef} style={{ position: 'relative', width: '100%', height: '100%' }}>
 
-      {rkIndicator && renkoBlocks.length > 0 && visibleRange && (
-        <RenkoOverlay
-          blocks={renkoBlocks}
-          visibleFrom={visibleRange.from}
-          visibleTo={visibleRange.to}
-          containerWidth={containerSize.width}
-          containerHeight={containerSize.height}
-          rightOffset={priceScaleWidth}
-          bullColor={rkIndicator.params.bullColor ?? '#26a69a'}
-          bearColor={rkIndicator.params.bearColor ?? '#ef5350'}
-          opacity={rkIndicator.params.opacity ?? 0.3}
-          chart={chartRef.current}
-          series={candleSeriesRef.current}
-          tick={overlayTick}
-        />
+      {/* Рендерим отдельный overlay для каждого Renko индикатора */}
+      {rkIndicators.map(ind =>
+        renkoBlocksMap[ind.id]?.length > 0 && visibleRange ? (
+          <RenkoOverlay
+            key={ind.id}
+            blocks={renkoBlocksMap[ind.id]}
+            visibleFrom={visibleRange.from}
+            visibleTo={visibleRange.to}
+            containerWidth={containerSize.width}
+            containerHeight={containerSize.height}
+            rightOffset={priceScaleWidth}
+            bullColor={ind.params.bullColor ?? '#26a69a'}
+            bearColor={ind.params.bearColor ?? '#ef5350'}
+            opacity={ind.params.opacity ?? 0.3}
+            chart={chartRef.current}
+            series={candleSeriesRef.current}
+            tick={overlayTick}
+          />
+        ) : null
       )}
 
       {vpIndicator && visibleRange && priceArea.bottom > priceArea.top && (

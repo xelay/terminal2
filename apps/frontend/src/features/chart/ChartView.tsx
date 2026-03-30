@@ -24,16 +24,15 @@ export const ChartView: React.FC = () => {
   const { setChartRefs } = useChartRefs();
   const { exchange, symbol, timeframe, indicators } = useWorkspaceStore();
 
-  const socketRef           = useRef<Socket | null>(null);
-  const candlesDataRef      = useRef<Candle[]>([]);
-  const isFetchingHistory   = useRef(false);
-  const indicatorsRef       = useRef(indicators);
+  const socketRef         = useRef<Socket | null>(null);
+  const candlesDataRef    = useRef<Candle[]>([]);
+  const isFetchingHistory = useRef(false);
+  const indicatorsRef     = useRef(indicators);
 
-  // Volume Profile state
-  const [visibleRange, setVisibleRange]   = useState<{ from: number; to: number } | null>(null);
-  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
-  // Ценовая область чарта (в px от верху контейнера)
-  const [priceArea, setPriceArea]         = useState({ top: 0, bottom: 0 });
+  const [visibleRange, setVisibleRange]     = useState<{ from: number; to: number } | null>(null);
+  const [containerSize, setContainerSize]   = useState({ width: 0, height: 0 });
+  const [priceArea, setPriceArea]           = useState({ top: 0, bottom: 0 });
+  const [priceScaleWidth, setPriceScaleWidth] = useState(0);
 
   useEffect(() => { indicatorsRef.current = indicators; }, [indicators]);
 
@@ -44,7 +43,7 @@ export const ChartView: React.FC = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chartRef.current, candleSeriesRef.current]);
 
-  // ―― Отслеживаем размер контейнера ――
+  // ―― Размер контейнера ――
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -55,13 +54,18 @@ export const ChartView: React.FC = () => {
     return () => ro.disconnect();
   }, []);
 
-  // ―― Отслеживаем видимый диапазон времени ――
+  // ―― Видимый диапазон времени + ширина шкалы цен ――
   useEffect(() => {
     if (!chartRef.current) return;
     const ts = chartRef.current.timeScale();
     const update = () => {
       const r = ts.getVisibleRange();
       if (r) setVisibleRange({ from: Number(r.from), to: Number(r.to) });
+      // Ширина шкалы цен — доступна через priceScale('right').width()
+      try {
+        const w = (chartRef.current as any).priceScale('right').width();
+        if (typeof w === 'number' && w > 0) setPriceScaleWidth(w);
+      } catch {}
     };
     update();
     ts.subscribeVisibleTimeRangeChange(update);
@@ -69,13 +73,11 @@ export const ChartView: React.FC = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chartRef.current]);
 
-  // ―― Отслеживаем ценовую область чарта (px) ――
+  // ―― Ценовая область в px ――
   useEffect(() => {
     if (!chartRef.current || !candleSeriesRef.current) return;
     const update = () => {
       if (!candleSeriesRef.current) return;
-      const ps = candleSeriesRef.current.priceScale();
-      // Берём видимый ценовой диапазон через priceToCoordinate
       const visible = candlesDataRef.current.filter(
         c => visibleRange ? c.time >= visibleRange.from && c.time <= visibleRange.to : true
       );
@@ -84,9 +86,7 @@ export const ChartView: React.FC = () => {
       const maxP = Math.max(...visible.map(c => c.high));
       const topY    = candleSeriesRef.current.priceToCoordinate(maxP);
       const bottomY = candleSeriesRef.current.priceToCoordinate(minP);
-      if (topY !== null && bottomY !== null) {
-        setPriceArea({ top: topY, bottom: bottomY });
-      }
+      if (topY !== null && bottomY !== null) setPriceArea({ top: topY, bottom: bottomY });
     };
     update();
     chartRef.current.timeScale().subscribeVisibleTimeRangeChange(update);
@@ -268,6 +268,7 @@ export const ChartView: React.FC = () => {
           opacity={vpIndicator.params.opacity ?? 0.35}
           priceTop={priceArea.top}
           priceBottom={priceArea.bottom}
+          rightOffset={priceScaleWidth}
         />
       )}
     </div>

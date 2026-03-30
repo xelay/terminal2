@@ -18,9 +18,10 @@ interface Props {
   rows?: number;
   color?: string;
   opacity?: number;
-  // Ценовая область чарта (без scale-margin снизу под volume и полей сверху)
-  priceTop: number;    // px от топа до верхней цены
-  priceBottom: number; // px от топа до нижней цены
+  priceTop: number;
+  priceBottom: number;
+  // Смещение влево от правого края — ширина шкалы цен
+  rightOffset?: number;
 }
 
 export const VolumeProfileOverlay: React.FC<Props> = ({
@@ -34,6 +35,7 @@ export const VolumeProfileOverlay: React.FC<Props> = ({
   opacity = 0.35,
   priceTop,
   priceBottom,
+  rightOffset = 0,
 }) => {
   const bins = useMemo(() => {
     const visible = candles.filter(c => c.time >= visibleFrom && c.time <= visibleTo);
@@ -46,14 +48,12 @@ export const VolumeProfileOverlay: React.FC<Props> = ({
 
     const step = range / rows;
 
-    // Инициализируем корзины
     const buckets = Array.from({ length: rows }, (_, i) => ({
       priceFrom: minPrice + i * step,
       priceTo:   minPrice + (i + 1) * step,
       volume: 0,
     }));
 
-    // Распределяем объём каждой свечи попропорционально по корзинам
     for (const c of visible) {
       const cLow  = c.low;
       const cHigh = c.high;
@@ -74,15 +74,13 @@ export const VolumeProfileOverlay: React.FC<Props> = ({
     }
 
     const maxVol = Math.max(...buckets.map(b => b.volume), 1);
-    const priceRange = priceBottom - priceTop; // px
+    const priceRange = priceBottom - priceTop;
 
     return buckets.map((b, i) => {
-      // Y-координата: преобразуем цену в px через линейную интерполяцию
       const yTop    = priceTop + ((maxPrice - b.priceTo)   / range) * priceRange;
       const yBottom = priceTop + ((maxPrice - b.priceFrom) / range) * priceRange;
       const barH = Math.max(1, yBottom - yTop - 1);
       const barW = (b.volume / maxVol) * profileWidth;
-
       return { key: i, x: profileWidth - barW, y: yTop, w: barW, h: barH };
     });
   }, [candles, visibleFrom, visibleTo, rows, priceTop, priceBottom, profileWidth]);
@@ -94,7 +92,7 @@ export const VolumeProfileOverlay: React.FC<Props> = ({
       style={{
         position: 'absolute',
         top: 0,
-        right: 0,
+        right: rightOffset,   // Прижат к левому краю шкалы цен
         width: profileWidth,
         height: containerHeight,
         pointerEvents: 'none',

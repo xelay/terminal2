@@ -257,7 +257,7 @@ export const ChartView: React.FC = () => {
           const earliestTime = candlesDataRef.current[0].time;
           const fromTime = earliestTime - 500 * (tfToSeconds[timeframe] || 60);
           const res = await fetch(
-            `http://localhost:3000/api/market/history?exchange=${exchange}&symbol=${encodeURIComponent(symbol)}&tf=${timeframe}&limit=500&from=${fromTime}`,
+            `${import.meta.env.VITE_API_URL}/api/market/history?exchange=${exchange}&symbol=${encodeURIComponent(symbol)}&tf=${timeframe}&limit=500&from=${fromTime}`,
           );
           const { candles: old } = await res.json();
           if (old && old.length > 0) {

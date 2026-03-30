@@ -4,6 +4,7 @@ import { IndicatorsModal } from '../features/chart/indicators/IndicatorsModal';
 import { SymbolSearchModal } from '../features/modals/SymbolSearchModal';
 import { CanvasOverlay } from '../features/drawings/CanvasOverlay';
 import { ChartRefsContext } from '../features/chart/ChartRefsContext';
+import { FavoritesSidebar } from '../features/favorites/FavoritesSidebar';
 import { useWorkspaceStore } from '../store/workspace';
 import { useSessionStore } from '../store/session';
 import { Timeframe } from '../store/workspace';
@@ -57,12 +58,22 @@ const IconGoogle = () => (
     <path fill="#4285F4" d="M23.745 12.27c0-.79-.07-1.54-.19-2.27h-11.3v4.51h6.47c-.29 1.48-1.14 2.73-2.4 3.58v3h3.86c2.26-2.09 3.56-5.17 3.56-8.82z"/>
     <path fill="#34A853" d="M12.255 24c3.24 0 5.95-1.08 7.93-2.91l-3.86-3c-1.08.72-2.45 1.16-4.07 1.16-3.13 0-5.78-2.11-6.73-4.96h-3.98v3.09C3.515 21.3 7.565 24 12.255 24z"/>
     <path fill="#FBBC05" d="M5.525 14.29c-.25-.72-.38-1.49-.38-2.29s.14-1.57.38-2.29V6.62h-3.98a11.86 11.86 0 000 10.76l3.98-3.09z"/>
-    <path fill="#EA4335" d="M12.255 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C18.205 1.19 15.495 0 12.255 0c-4.69 0-8.74 2.7-10.71 6.62l3.98 3.09c.95-2.85 3.6-4.96 6.73-4.96z"/>
+    <path fill="#EA4335" d="M12.255 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C18.205 1.19 15.495 0 12.255 0c-4.69 0-8.74 2.7-10.71 6.62l3.98 3.09z"/>
+  </svg>
+);
+const IconStar = ({ filled }: { filled: boolean }) => (
+  <svg width="15" height="15" viewBox="0 0 24 24"
+    fill={filled ? '#f5c518' : 'none'}
+    stroke={filled ? '#f5c518' : '#9598a1'}
+    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+    style={{ transition: 'fill 0.15s, stroke 0.15s' }}
+  >
+    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
   </svg>
 );
 
 export const App: React.FC = () => {
-  const { exchange, symbol, timeframe, setTimeframe, theme, setTheme } = useWorkspaceStore();
+  const { exchange, symbol, timeframe, setTimeframe, theme, setTheme, toggleFavorite, isFavorite } = useWorkspaceStore();
   const { isLoggedIn, logout } = useSessionStore();
 
   const [isSearchOpen, setIsSearchOpen]         = useState(false);
@@ -70,9 +81,11 @@ export const App: React.FC = () => {
   const [activeTool, setActiveTool]             = useState<DrawingTool>(null);
   const [chartRefs, setChartRefs]               = useState<{ chart: any; series: any } | null>(null);
   const [candlesRef, setCandlesRef]             = useState<React.MutableRefObject<any[]> | null>(null);
+  const [favOpen, setFavOpen]                   = useState(true);
 
   const isDark = theme === 'dark';
   const colors = CHART_THEMES[theme];
+  const starred = isFavorite(exchange, symbol);
 
   const toggleTool = (tool: DrawingTool) =>
     setActiveTool(prev => (prev === tool ? null : tool));
@@ -115,9 +128,24 @@ export const App: React.FC = () => {
           borderBottom: `1px solid ${isDark ? '#2b2b43' : '#e0e3eb'}`,
           display: 'flex', alignItems: 'center', padding: '0 16px', gap: '8px', flexShrink: 0,
         }}>
-          <button onClick={() => setIsSearchOpen(true)} style={secondaryBtnStyle}>
-            {exchange.toUpperCase()} : {symbol}
-          </button>
+          {/* Пикер символа + звездочка */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <button onClick={() => setIsSearchOpen(true)} style={secondaryBtnStyle}>
+              {exchange.toUpperCase()} : {symbol}
+            </button>
+            <button
+              onClick={() => toggleFavorite(exchange, symbol)}
+              title={starred ? 'Удалить из избранного' : 'Добавить в избранное'}
+              style={{
+                background: 'none', border: 'none', cursor: 'pointer',
+                padding: '4px 6px', display: 'flex', alignItems: 'center',
+                borderRadius: 4,
+              }}
+            >
+              <IconStar filled={starred} />
+            </button>
+          </div>
+
           <div style={{ display: 'flex', gap: '2px' }}>
             {TIMEFRAMES.map(tf => (
               <button key={tf} onClick={() => setTimeframe(tf)} style={{
@@ -152,6 +180,7 @@ export const App: React.FC = () => {
         </header>
 
         <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+          {/* Тулбар рисования */}
           <aside style={{
             width: '50px',
             borderRight: `1px solid ${isDark ? '#2b2b43' : '#e0e3eb'}`,
@@ -165,6 +194,10 @@ export const App: React.FC = () => {
               <IconTrendLine color={activeTool === 'trendline' ? ICON_ACTIVE : ICON_DEFAULT} />
             </button>
           </aside>
+
+          {/* Сайдбар избранного */}
+          <FavoritesSidebar open={favOpen} onToggle={() => setFavOpen(v => !v)} />
+
           <main style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
             <ChartView />
             <CanvasOverlay

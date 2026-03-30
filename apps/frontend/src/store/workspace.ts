@@ -12,12 +12,18 @@ export interface Indicator {
   params: any;
 }
 
+export interface FavoriteSymbol {
+  exchange: string;
+  symbol: string;
+}
+
 interface WorkspaceState {
   exchange: string;
   symbol: string;
   timeframe: Timeframe;
   indicators: Indicator[];
   theme: Theme;
+  favorites: FavoriteSymbol[];
 
   setSymbol: (exchange: string, symbol: string) => void;
   setTimeframe: (tf: Timeframe) => void;
@@ -26,6 +32,8 @@ interface WorkspaceState {
   updateIndicator: (id: string, params: any) => void;
   removeIndicator: (id: string) => void;
   clearIndicators: () => void;
+  toggleFavorite: (exchange: string, symbol: string) => void;
+  isFavorite: (exchange: string, symbol: string) => boolean;
 }
 
 const apiStorage: StateStorage = {
@@ -62,12 +70,13 @@ const apiStorage: StateStorage = {
 
 export const useWorkspaceStore = create<WorkspaceState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       exchange: 'bybit',
       symbol: 'BTC/USDT',
       timeframe: '15m',
       indicators: [],
       theme: 'dark',
+      favorites: [],
 
       setSymbol: (exchange, symbol) => set({ exchange, symbol }),
       setTimeframe: (timeframe) => set({ timeframe }),
@@ -93,6 +102,20 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         })),
 
       clearIndicators: () => set({ indicators: [] }),
+
+      toggleFavorite: (exchange, symbol) =>
+        set((state) => {
+          const exists = state.favorites.some(
+            f => f.exchange === exchange && f.symbol === symbol
+          );
+          const favorites = exists
+            ? state.favorites.filter(f => !(f.exchange === exchange && f.symbol === symbol))
+            : [...state.favorites, { exchange, symbol }];
+          return { favorites };
+        }),
+
+      isFavorite: (exchange, symbol) =>
+        get().favorites.some(f => f.exchange === exchange && f.symbol === symbol),
     }),
     {
       name: 'terminal-workspace',
@@ -103,6 +126,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         timeframe: state.timeframe,
         indicators: state.indicators,
         theme: state.theme,
+        favorites: state.favorites,
       }),
     },
   ),

@@ -5,6 +5,7 @@ import { SymbolSearchModal } from '../features/modals/SymbolSearchModal';
 import { CanvasOverlay } from '../features/drawings/CanvasOverlay';
 import { ChartRefsContext } from '../features/chart/ChartRefsContext';
 import { useWorkspaceStore } from '../store/workspace';
+import { useSessionStore } from '../store/session';
 import { Timeframe } from '../store/workspace';
 import { CHART_THEMES } from '../features/chart/lwc/useLightweightChart';
 import '../styles/globals.css';
@@ -15,6 +16,8 @@ const TIMEFRAMES: Timeframe[] = ['1m', '5m', '15m', '1h', '4h', '1d', '1w', '1M'
 
 const ICON_DEFAULT = '#9598a1';
 const ICON_ACTIVE  = '#ffffff';
+
+const BACKEND_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 const IconBrush = ({ color }: { color: string }) => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
@@ -55,8 +58,19 @@ const IconSun = () => (
   </svg>
 );
 
+const IconGoogle = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24">
+    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/>
+    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+  </svg>
+);
+
 export const App: React.FC = () => {
   const { exchange, symbol, timeframe, setTimeframe, theme, setTheme } = useWorkspaceStore();
+  const { isLoggedIn, logout } = useSessionStore();
+
   const [isSearchOpen, setIsSearchOpen]         = useState(false);
   const [isIndicatorsOpen, setIsIndicatorsOpen] = useState(false);
   const [activeTool, setActiveTool]             = useState<DrawingTool>(null);
@@ -68,7 +82,6 @@ export const App: React.FC = () => {
   const toggleTool = (tool: DrawingTool) =>
     setActiveTool(prev => (prev === tool ? null : tool));
 
-  // Escape — выход из режима рисования
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setActiveTool(null);
@@ -76,6 +89,10 @@ export const App: React.FC = () => {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
+
+  const handleGoogleLogin = () => {
+    window.location.href = `${BACKEND_URL}/api/auth/google`;
+  };
 
   const toolBtnStyle = (active: boolean): React.CSSProperties => ({
     background: active ? '#2962FF' : 'transparent',
@@ -110,10 +127,12 @@ export const App: React.FC = () => {
           borderBottom: `1px solid ${isDark ? '#2b2b43' : '#e0e3eb'}`,
           display: 'flex', alignItems: 'center', padding: '0 16px', gap: '8px', flexShrink: 0,
         }}>
+          {/* Символ */}
           <button onClick={() => setIsSearchOpen(true)} style={secondaryBtnStyle}>
             {exchange.toUpperCase()} : {symbol}
           </button>
 
+          {/* Таймфреймы */}
           <div style={{ display: 'flex', gap: '2px' }}>
             {TIMEFRAMES.map(tf => (
               <button
@@ -131,24 +150,58 @@ export const App: React.FC = () => {
             ))}
           </div>
 
+          {/* Индикаторы */}
           <button onClick={() => setIsIndicatorsOpen(true)} style={secondaryBtnStyle}>
             Индикаторы
           </button>
 
-          <button
-            title={isDark ? 'Светлая тема' : 'Тёмная тема'}
-            onClick={() => setTheme(isDark ? 'light' : 'dark')}
-            style={{
-              ...secondaryBtnStyle,
-              marginLeft: 'auto',
-              padding: 0,
-              width: 36, height: 36,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              flexShrink: 0,
-            }}
-          >
-            {isDark ? <IconSun /> : <IconMoon />}
-          </button>
+          {/* Правая часть */}
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+            {/* Авторизация */}
+            {isLoggedIn ? (
+              <button
+                onClick={logout}
+                title="Выйти"
+                style={{
+                  ...secondaryBtnStyle,
+                  padding: '6px 12px',
+                  fontSize: 12,
+                  color: '#ef5350',
+                  borderColor: '#ef5350',
+                }}
+              >
+                Выйти
+              </button>
+            ) : (
+              <button
+                onClick={handleGoogleLogin}
+                title="Войти через Google"
+                style={{
+                  ...secondaryBtnStyle,
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  padding: '6px 12px',
+                }}
+              >
+                <IconGoogle />
+                Войти
+              </button>
+            )}
+
+            {/* Тема */}
+            <button
+              title={isDark ? 'Светлая тема' : 'Тёмная тема'}
+              onClick={() => setTheme(isDark ? 'light' : 'dark')}
+              style={{
+                ...secondaryBtnStyle,
+                padding: 0,
+                width: 36, height: 36,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                flexShrink: 0,
+              }}
+            >
+              {isDark ? <IconSun /> : <IconMoon />}
+            </button>
+          </div>
         </header>
 
         <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>

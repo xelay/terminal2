@@ -33,11 +33,13 @@ jobs:
           port: 2233
           script: |
             set -e  # ← выход при любой ошибке
-            
+
             mkdir -p ~/terminal2-deployment/apps/backend
             cat > ~/terminal2-deployment/apps/backend/.env << 'ENVEOF'
             ${{ secrets.ENV_FILE }}
             ENVEOF
+
+            echo "VITE_API_URL=https://trading.kalakala.ru" > ~/terminal2-deployment/apps/frontend/.env
 
             cd ~/terminal2-deployment
             docker compose -f infra/docker-compose.yml down

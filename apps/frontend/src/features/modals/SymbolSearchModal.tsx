@@ -11,10 +11,30 @@ interface Props {
   onClose: () => void;
 }
 
-const EXCHANGE_LABEL: Record<string, { label: string; bg: string; color: string }> = {
-  bybit: { label: 'BYBIT', bg: '#1a3a5c', color: '#2962FF' },
-  moex:  { label: 'MOEX',  bg: '#1a3a2c', color: '#26a69a' },
+// Цвета бейджа адаптированы под обе темы
+const EXCHANGE_META: Record<string, {
+  label: string;
+  dark:  { bg: string; color: string; border: string };
+  light: { bg: string; color: string; border: string };
+}> = {
+  bybit: {
+    label: 'BYBIT',
+    dark:  { bg: '#0d1f3c', color: '#4d8af0', border: '#1e3a6e' },
+    light: { bg: '#e8f0fe', color: '#1a56db', border: '#b8d0f8' },
+  },
+  moex: {
+    label: 'MOEX',
+    dark:  { bg: '#0d2a1f', color: '#26a69a', border: '#1a4a3a' },
+    light: { bg: '#e6f4f1', color: '#0f7a6e', border: '#b2dbd6' },
+  },
 };
+
+const getFallbackMeta = (exchange: string, isDark: boolean) => ({
+  label: exchange.toUpperCase(),
+  ...(isDark
+    ? { bg: '#2b2b43', color: '#aaa', border: '#3a3a55' }
+    : { bg: '#f0f0f5', color: '#666', border: '#d0d0df' }),
+});
 
 export const SymbolSearchModal: React.FC<Props> = ({ onClose }) => {
   const { setSymbol, theme } = useWorkspaceStore();
@@ -23,11 +43,10 @@ export const SymbolSearchModal: React.FC<Props> = ({ onClose }) => {
   const [query, setQuery]     = useState('');
   const [results, setResults] = useState<SymbolResult[]>([]);
   const [loading, setLoading] = useState(false);
-  const inputRef   = useRef<HTMLInputElement>(null);
+  const inputRef    = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => { setTimeout(() => inputRef.current?.focus(), 50); }, []);
-
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
@@ -38,7 +57,6 @@ export const SymbolSearchModal: React.FC<Props> = ({ onClose }) => {
     if (!q.trim()) { setResults([]); return; }
     setLoading(true);
     try {
-      // Без exchange — бэк ищет по всем биржам параллельно
       const res = await fetch(
         `${import.meta.env.VITE_API_URL}/api/market/search?query=${encodeURIComponent(q)}`,
       );
@@ -63,70 +81,89 @@ export const SymbolSearchModal: React.FC<Props> = ({ onClose }) => {
     onClose();
   };
 
-  const bg      = isDark ? '#1e222d' : '#fff';
-  const inputBg = isDark ? '#131722' : '#f5f5fa';
-  const border  = isDark ? '#2b2b43' : '#dde1eb';
-  const textColor = isDark ? '#d1d4dc' : '#131722';
+  const modalBg  = isDark ? '#1e222d' : '#ffffff';
+  const inputBg  = isDark ? '#131722' : '#f8f9fb';
+  const border   = isDark ? '#2b2b43' : '#e2e5ed';
+  const textMain = isDark ? '#d1d4dc' : '#131722';
+  const textSub  = isDark ? '#9598a1' : '#6b7280';
+  const hoverBg  = isDark ? '#262b3a' : '#f3f5fb';
 
   return (
     <div
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
       style={{
         position: 'fixed', inset: 0,
-        background: 'rgba(0,0,0,0.55)',
+        background: isDark ? 'rgba(0,0,0,0.6)' : 'rgba(30,34,45,0.35)',
         zIndex: 200, display: 'flex',
-        justifyContent: 'center', alignItems: 'flex-start', paddingTop: 80,
+        justifyContent: 'center', alignItems: 'flex-start', paddingTop: 72,
       }}
     >
       <div style={{
-        width: 520, background: bg, borderRadius: 8,
-        overflow: 'hidden', boxShadow: '0 8px 32px rgba(0,0,0,0.45)',
+        width: 520, background: modalBg, borderRadius: 10,
+        overflow: 'hidden',
+        boxShadow: isDark
+          ? '0 12px 40px rgba(0,0,0,0.55)'
+          : '0 8px 40px rgba(0,0,0,0.14)',
+        border: `1px solid ${border}`,
         display: 'flex', flexDirection: 'column',
       }}>
         {/* Заголовок */}
         <div style={{
-          padding: '14px 16px 12px',
+          padding: '14px 16px 13px',
           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
           borderBottom: `1px solid ${border}`,
         }}>
-          <span style={{ color: textColor, fontWeight: 600, fontSize: 15 }}>Поиск символа</span>
+          <span style={{ color: textMain, fontWeight: 600, fontSize: 14, letterSpacing: '-0.01em' }}>
+            Поиск символа
+          </span>
           <button onClick={onClose} style={{
             background: 'transparent', border: 'none',
-            color: '#888', cursor: 'pointer', fontSize: 18, lineHeight: 1,
-          }}>✕</button>
+            color: textSub, cursor: 'pointer', fontSize: 18,
+            lineHeight: 1, padding: '0 2px',
+            display: 'flex', alignItems: 'center',
+          }}>×</button>
         </div>
 
         {/* Инпут */}
-        <div style={{ padding: '12px 16px' }}>
+        <div style={{ padding: '12px 14px' }}>
           <input
             ref={inputRef}
             type="text"
             value={query}
             onChange={handleQueryChange}
-            placeholder="SBER, BTC/USDT, GAZP, ETH..."
+            placeholder="SBER, BTC/USDT, GAZP, ETH…"
             style={{
-              width: '100%', padding: '10px 12px',
-              background: inputBg, border: `1px solid ${border}`,
-              borderRadius: 4, color: textColor, fontSize: 14,
+              width: '100%', padding: '9px 12px',
+              background: inputBg,
+              border: `1px solid ${border}`,
+              borderRadius: 6, color: textMain, fontSize: 14,
               boxSizing: 'border-box', outline: 'none',
+              transition: 'border-color 0.15s',
             }}
+            onFocus={e => { e.currentTarget.style.borderColor = '#2962FF'; }}
+            onBlur={e  => { e.currentTarget.style.borderColor = border; }}
           />
         </div>
 
         {/* Результаты */}
-        <div style={{ minHeight: 60, maxHeight: 380, overflowY: 'auto', paddingBottom: 8 }}>
+        <div style={{ minHeight: 60, maxHeight: 400, overflowY: 'auto', paddingBottom: 6 }}>
           {loading && (
-            <div style={{ color: '#888', fontSize: 13, textAlign: 'center', padding: '20px 0' }}>
-              Поиск...
+            <div style={{ color: textSub, fontSize: 13, textAlign: 'center', padding: '20px 0' }}>
+              Поиск…
             </div>
           )}
           {!loading && query.trim() && results.length === 0 && (
-            <div style={{ color: '#888', fontSize: 13, textAlign: 'center', padding: '20px 0' }}>
+            <div style={{ color: textSub, fontSize: 13, textAlign: 'center', padding: '20px 0' }}>
               Ничего не найдено
             </div>
           )}
           {!loading && results.map((r, i) => {
-            const exMeta = EXCHANGE_LABEL[r.exchange] ?? { label: r.exchange.toUpperCase(), bg: '#2b2b43', color: '#aaa' };
+            const meta = EXCHANGE_META[r.exchange];
+            const badge = meta
+              ? (isDark ? meta.dark : meta.light)
+              : getFallbackMeta(r.exchange, isDark);
+            const label = meta?.label ?? r.exchange.toUpperCase();
+
             return (
               <button
                 key={`${r.exchange}:${r.symbol}:${i}`}
@@ -134,31 +171,35 @@ export const SymbolSearchModal: React.FC<Props> = ({ onClose }) => {
                 style={{
                   width: '100%', textAlign: 'left',
                   background: 'transparent', border: 'none',
-                  borderRadius: 0, color: textColor,
-                  padding: '8px 16px', cursor: 'pointer',
+                  color: textMain, padding: '7px 14px',
+                  cursor: 'pointer',
                   display: 'flex', alignItems: 'center', gap: 12,
                 }}
-                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = isDark ? '#2b2b43' : '#f0f3fa'; }}
+                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = hoverBg; }}
                 onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
               >
-                {/* Бейдж биржи */}
+                {/* Бейдж */}
                 <span style={{
-                  fontSize: 10, background: exMeta.bg, color: exMeta.color,
-                  padding: '2px 5px', borderRadius: 3,
-                  fontWeight: 700, letterSpacing: 0.5,
-                  minWidth: 42, textAlign: 'center', flexShrink: 0,
+                  fontSize: 10, fontWeight: 700,
+                  letterSpacing: '0.04em',
+                  background: badge.bg,
+                  color: badge.color,
+                  border: `1px solid ${'border' in badge ? badge.border : 'transparent'}`,
+                  padding: '2px 6px',
+                  borderRadius: 4,
+                  minWidth: 44, textAlign: 'center', flexShrink: 0,
                 }}>
-                  {exMeta.label}
+                  {label}
                 </span>
-                {/* Символ + дескрипшн */}
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: textColor }}>
+                {/* Текст */}
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: textMain, letterSpacing: '-0.01em' }}>
                     {r.symbol}
                   </div>
                   {r.description && r.description !== r.symbol && (
                     <div style={{
-                      fontSize: 11, color: isDark ? '#9598a1' : '#888',
-                      marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                      fontSize: 11, color: textSub, marginTop: 1,
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                     }}>
                       {r.description}
                     </div>

@@ -1,4 +1,3 @@
- 
 import { Router } from 'express';
 import { exchangeService } from '../exchanges/ExchangeService';
 
@@ -16,17 +15,22 @@ marketRouter.get('/search', async (req, res) => {
   }
 });
 
-// Исторические свечи (для старта графика и пагинации)
+// Исторические свечи
 marketRouter.get('/history', async (req, res) => {
   const { exchange, symbol, tf, from, limit } = req.query;
-  
+
+  // Отключаем ETag/304 кэширование — данные всегда должны приходить свежими
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.set('Pragma', 'no-cache');
+  res.set('ETag', '');
+
   try {
     const adapter = exchangeService.getAdapter(exchange as string);
     const candles = await adapter.getHistoricalCandles(
-      symbol as string, 
-      tf as any, 
+      symbol as string,
+      tf as any,
       from ? Number(from) : undefined,
-      limit ? Number(limit) : 500
+      limit ? Number(limit) : 500,
     );
     res.json({ candles });
   } catch (e: any) {

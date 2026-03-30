@@ -185,7 +185,7 @@ export const ChartView: React.FC = () => {
       try {
         isFetchingHistory.current = true;
         const res = await fetch(
-          `http://localhost:3000/api/market/history?exchange=${exchange}&symbol=${encodeURIComponent(symbol)}&tf=${timeframe}&limit=500`,
+          `${import.meta.env.VITE_API_URL}/api/market/history?exchange=${exchange}&symbol=${encodeURIComponent(symbol)}&tf=${timeframe}&limit=500`,
         );
         const { candles } = await res.json();
         if (candles && candles.length > 0) {

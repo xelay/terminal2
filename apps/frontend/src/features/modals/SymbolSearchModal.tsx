@@ -29,7 +29,7 @@ export const SymbolSearchModal: React.FC<SymbolSearchModalProps> = ({ onClose })
     setLoading(true);
     try {
       const res = await fetch(
-        `http://localhost:3000/api/market/search?exchange=${exch}&query=${encodeURIComponent(q)}`,
+        `${import.meta.env.VITE_API_URL}/api/market/search?exchange=${exch}&query=${encodeURIComponent(q)}`,
       );
       const data = await res.json();
       setResults(data.symbols || []);

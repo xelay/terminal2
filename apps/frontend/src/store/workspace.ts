@@ -17,6 +17,15 @@ export interface FavoriteSymbol {
   symbol: string;
 }
 
+// Если биржа отключена — заменяем на этот словарь
+const EXCHANGE_MIGRATION: Record<string, string> = {
+  moex: 'tinkoff',
+};
+
+function migrateExchange(ex: string): string {
+  return EXCHANGE_MIGRATION[ex] ?? ex;
+}
+
 interface WorkspaceState {
   exchange: string;
   symbol: string;
@@ -78,7 +87,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       theme: 'dark',
       favorites: [],
 
-      setSymbol: (exchange, symbol) => set({ exchange, symbol }),
+      setSymbol: (exchange, symbol) => set({ exchange: migrateExchange(exchange), symbol }),
       setTimeframe: (timeframe) => set({ timeframe }),
       setTheme: (theme) => set({ theme }),
 
@@ -105,17 +114,18 @@ export const useWorkspaceStore = create<WorkspaceState>()(
 
       toggleFavorite: (exchange, symbol) =>
         set((state) => {
+          const ex = migrateExchange(exchange);
           const exists = state.favorites.some(
-            f => f.exchange === exchange && f.symbol === symbol
+            f => f.exchange === ex && f.symbol === symbol
           );
           const favorites = exists
-            ? state.favorites.filter(f => !(f.exchange === exchange && f.symbol === symbol))
-            : [...state.favorites, { exchange, symbol }];
+            ? state.favorites.filter(f => !(f.exchange === ex && f.symbol === symbol))
+            : [...state.favorites, { exchange: ex, symbol }];
           return { favorites };
         }),
 
       isFavorite: (exchange, symbol) =>
-        get().favorites.some(f => f.exchange === exchange && f.symbol === symbol),
+        get().favorites.some(f => f.exchange === migrateExchange(exchange) && f.symbol === symbol),
     }),
     {
       name: 'terminal-workspace',
@@ -128,6 +138,19 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         theme: state.theme,
         favorites: state.favorites,
       }),
+      // Миграция при определении из персистентного хранилища
+      onRehydrateStorage: () => (state) => {
+        if (!state) return;
+        const migratedExchange = migrateExchange(state.exchange);
+        const migratedFavorites = state.favorites.map(f => ({
+          ...f,
+          exchange: migrateExchange(f.exchange),
+        }));
+        if (migratedExchange !== state.exchange || migratedFavorites.some((f, i) => f.exchange !== state.favorites[i]?.exchange)) {
+          state.exchange = migratedExchange;
+          state.favorites = migratedFavorites;
+        }
+      },
     },
   ),
 );

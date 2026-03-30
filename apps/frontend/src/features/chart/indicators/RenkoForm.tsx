@@ -9,11 +9,10 @@ interface Props {
 }
 
 export const RenkoForm: React.FC<Props> = ({ indicatorId, onClose }) => {
-  const { addIndicator, updateIndicator, indicators } = useWorkspaceStore();
+  const { addIndicator, updateIndicator, indicators, symbol } = useWorkspaceStore();
   const { candlesRef } = useChartRefs();
   const existing = indicatorId ? indicators.find(i => i.id === indicatorId) : undefined;
 
-  // Читаем свечи напрямую из ref — всегда актуальные
   const candles = candlesRef?.current ?? [];
   const refPrice = candles.length > 0 ? candles[candles.length - 1].close : 1000;
 
@@ -21,11 +20,14 @@ export const RenkoForm: React.FC<Props> = ({ indicatorId, onClose }) => {
     if (candles.length < 2) return smartRound(refPrice * 0.01, refPrice);
     const atr = calcATR(candles);
     return atr > 0 ? smartRound(atr, refPrice) : smartRound(refPrice * 0.01, refPrice);
-  // пересчитываем один раз при открытии формы
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const [blockSize, setBlockSize] = useState<number>(existing?.params.blockSize ?? defaultATR);
+  // Читаем размер для текущего символа из словаря
+  const blockSizes: Record<string, number> = existing?.params.blockSizes ?? {};
+  const currentSize = blockSizes[symbol];
+
+  const [blockSize, setBlockSize] = useState<number | ''>(currentSize ?? '');
   const [source,    setSource]    = useState<PriceSource>(existing?.params.source    ?? 'close');
   const [bullColor, setBullColor] = useState<string>(existing?.params.bullColor ?? '#26a69a');
   const [bearColor, setBearColor] = useState<string>(existing?.params.bearColor ?? '#ef5350');
@@ -34,7 +36,15 @@ export const RenkoForm: React.FC<Props> = ({ indicatorId, onClose }) => {
   const handleResetATR = () => setBlockSize(defaultATR);
 
   const handleSave = () => {
-    const params = { blockSize, source, bullColor, bearColor, opacity };
+    const sizeVal = blockSize === '' ? undefined : Number(blockSize);
+
+    // Обновляем словарь: если размер задан — сохраняем,
+    // если пустой — удаляем запись для этого символа
+    const newSizes = { ...blockSizes };
+    if (sizeVal && sizeVal > 0) newSizes[symbol] = sizeVal;
+    else delete newSizes[symbol];
+
+    const params = { blockSizes: newSizes, source, bullColor, bearColor, opacity };
     if (existing) updateIndicator(existing.id, params);
     else addIndicator('renko', params);
     onClose();
@@ -47,22 +57,38 @@ export const RenkoForm: React.FC<Props> = ({ indicatorId, onClose }) => {
   };
   const labelStyle: React.CSSProperties = { fontSize: 12, opacity: 0.7, marginBottom: 4 };
 
+  const isNewSymbol = !currentSize;
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
 
+      {/* Предупреждение если для этого символа размер не задан */}
+      {isNewSymbol && (
+        <div style={{
+          background: '#2962FF18', border: '1px solid #2962FF44',
+          borderRadius: 4, padding: '8px 10px', fontSize: 12, color: '#7b9ff9',
+        }}>
+          ⚠️ Для <b>{symbol}</b> размер блока не задан — индикатор не будет отображаться.
+          Укажите размер ниже.
+        </div>
+      )}
+
       <div>
-        <div style={labelStyle}>Размер блока</div>
+        <div style={labelStyle}>
+          Размер блока для <span style={{ color: '#2962FF' }}>{symbol}</span>
+        </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <input
             type="number" min={0.00001}
             step={refPrice > 100 ? 1 : refPrice > 10 ? 0.1 : 0.01}
             value={blockSize}
-            onChange={e => setBlockSize(Number(e.target.value))}
+            placeholder={`напр. ${defaultATR}`}
+            onChange={e => setBlockSize(e.target.value === '' ? '' : Number(e.target.value))}
             style={inputStyle}
           />
           <button
             onClick={handleResetATR}
-            title={`Сбросить до ATR(50) ≈ ${defaultATR}`}
+            title={`ATR(50) ≈ ${defaultATR}`}
             style={{
               background: '#2b2b43', border: 'none', borderRadius: 4,
               color: '#d1d4dc', cursor: 'pointer', padding: '6px 10px',
@@ -76,6 +102,16 @@ export const RenkoForm: React.FC<Props> = ({ indicatorId, onClose }) => {
           Авто-округление: {refPrice > 100 ? 'до целых' : refPrice > 10 ? 'до десятых' : 'до сотых'}
           {candles.length > 0 && <span style={{ marginLeft: 8, color: '#2962FF' }}>≈ {defaultATR}</span>}
         </div>
+        {/* Список уже запомненных символов */}
+        {Object.keys(blockSizes).length > 0 && (
+          <div style={{ marginTop: 8, fontSize: 11, opacity: 0.55 }}>
+            Запомнено: {Object.entries(blockSizes).map(([sym, sz]) => (
+              <span key={sym} style={{ marginRight: 8, color: sym === symbol ? '#2962FF' : 'inherit' }}>
+                {sym}: <b>{sz}</b>
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       <div>

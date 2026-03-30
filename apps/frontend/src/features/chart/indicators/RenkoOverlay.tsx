@@ -7,11 +7,10 @@ interface Props {
   visibleTo: number;
   containerWidth: number;
   containerHeight: number;
+  rightOffset: number;   // ширина price scale справа
   bullColor: string;
   bearColor: string;
   opacity: number;
-  // Функции конвертации координат из ChartView
-  timeToX: (t: number) => number | null;
   priceToY: (p: number) => number | null;
 }
 
@@ -21,14 +20,25 @@ export const RenkoOverlay: React.FC<Props> = ({
   visibleTo,
   containerWidth,
   containerHeight,
+  rightOffset,
   bullColor,
   bearColor,
   opacity,
-  timeToX,
   priceToY,
 }) => {
   const rects = useMemo(() => {
-    // Фильтруем только блоки, которые попадают в видимый диапазон
+    if (!visibleFrom || !visibleTo || visibleTo <= visibleFrom) return [];
+
+    // Пиксельная ширина области свечей (без price scale справа)
+    const chartWidth = containerWidth - rightOffset;
+    if (chartWidth <= 0) return [];
+
+    // Линейное отображение time → X (достаточно точное для overlay)
+    const timeRange = visibleTo - visibleFrom;
+    const timeToX = (t: number): number =>
+      ((t - visibleFrom) / timeRange) * chartWidth;
+
+    // Фильтруем блоки, пересекающие видимый диапазон
     const visible = blocks.filter(
       b => b.timeEnd >= visibleFrom && b.timeStart <= visibleTo
     );
@@ -42,16 +52,10 @@ export const RenkoOverlay: React.FC<Props> = ({
     for (let i = 0; i < visible.length; i++) {
       const b = visible[i];
 
-      // X: от timeStart до timeEnd
-      // Если timeStart вышел за левый край — прижимаем к 0
-      const xStart = timeToX(b.timeStart);
-      const xEnd   = timeToX(b.timeEnd);
-      if (xStart === null || xEnd === null) continue;
+      const xStart = Math.max(0, timeToX(b.timeStart));
+      const xEnd   = Math.min(chartWidth, timeToX(b.timeEnd));
+      const w = Math.max(1, xEnd - xStart);
 
-      const x = Math.max(0, xStart);
-      const w = Math.max(1, Math.min(containerWidth, xEnd) - x);
-
-      // Y: priceToY(priceTo) — верхняя точка, priceToY(priceFrom) — нижняя
       const yTop    = priceToY(b.priceTo);
       const yBottom = priceToY(b.priceFrom);
       if (yTop === null || yBottom === null) continue;
@@ -61,13 +65,13 @@ export const RenkoOverlay: React.FC<Props> = ({
 
       result.push({
         key: i,
-        x, y, w, h,
+        x: xStart, y, w, h,
         color: b.direction === 'up' ? bullColor : bearColor,
       });
     }
 
     return result;
-  }, [blocks, visibleFrom, visibleTo, timeToX, priceToY, bullColor, bearColor]);
+  }, [blocks, visibleFrom, visibleTo, containerWidth, rightOffset, priceToY, bullColor, bearColor]);
 
   if (!rects.length) return null;
 

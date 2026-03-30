@@ -38,7 +38,6 @@ export const ChartView: React.FC = () => {
 
   // Renko
   const [renkoBlocks, setRenkoBlocks] = useState<RenkoBlock[]>([]);
-  const [renderTick, setRenderTick]   = useState(0); // форсируем ре-рендер overlay при скролле
 
   useEffect(() => { indicatorsRef.current = indicators; }, [indicators]);
 
@@ -71,7 +70,6 @@ export const ChartView: React.FC = () => {
         const w = (chartRef.current as any).priceScale('right').width();
         if (typeof w === 'number' && w > 0) setPriceScaleWidth(w);
       } catch {}
-      setRenderTick(t => t + 1); // перерисовываем Renko при любом движении
     };
     update();
     ts.subscribeVisibleTimeRangeChange(update);
@@ -267,7 +265,7 @@ export const ChartView: React.FC = () => {
               candleSeriesRef.current?.setData(
                 merged.map((c: Candle) => ({ time: c.time as Time, open: c.open, high: c.high, low: c.low, close: c.close }))
               );
-              syncVolume(); syncSMASeries(); rebuildRenko(); // пересчёт после подгрузки
+              syncVolume(); syncSMASeries(); rebuildRenko();
             }
           }
         } catch (e) {
@@ -281,15 +279,11 @@ export const ChartView: React.FC = () => {
     return () => timeScale.unsubscribeVisibleLogicalRangeChange(onRange);
   }, [exchange, symbol, timeframe, chartRef]);
 
-  // Функции конвертации координат для RenkoOverlay
-  const timeToX = useCallback((t: number): number | null => {
-    if (!chartRef.current) return null;
-    return chartRef.current.timeScale().timeToCoordinate(t as Time);
-  }, [renderTick]); // eslint-disable-line react-hooks/exhaustive-deps
-
+  // Функция конвертации price → Y через API lightweight-charts
   const priceToY = useCallback((p: number): number | null => {
     return candleSeriesRef.current?.priceToCoordinate(p) ?? null;
-  }, [renderTick]); // eslint-disable-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleRange]);
 
   const vpIndicator = indicators.find(i => i.type === 'volume_profile');
   const rkIndicator = indicators.find(i => i.type === 'renko');
@@ -297,7 +291,7 @@ export const ChartView: React.FC = () => {
   return (
     <div ref={containerRef} style={{ position: 'relative', width: '100%', height: '100%' }}>
 
-      {/* Renko overlay — под Volume Profile */}
+      {/* Renko overlay */}
       {rkIndicator && renkoBlocks.length > 0 && visibleRange && (
         <RenkoOverlay
           blocks={renkoBlocks}
@@ -305,10 +299,10 @@ export const ChartView: React.FC = () => {
           visibleTo={visibleRange.to}
           containerWidth={containerSize.width}
           containerHeight={containerSize.height}
+          rightOffset={priceScaleWidth}
           bullColor={rkIndicator.params.bullColor ?? '#26a69a'}
           bearColor={rkIndicator.params.bearColor ?? '#ef5350'}
           opacity={rkIndicator.params.opacity ?? 0.3}
-          timeToX={timeToX}
           priceToY={priceToY}
         />
       )}

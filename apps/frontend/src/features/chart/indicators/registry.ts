@@ -1,6 +1,6 @@
 import { SMAForm } from './SMAForm';
 
-export type IndicatorType = 'sma' | 'volume' | 'volume_profile';
+export type IndicatorType = 'sma' | 'volume' | 'volume_profile' | 'renko';
 
 export interface IndicatorMeta {
   type: IndicatorType;
@@ -27,5 +27,11 @@ export const INDICATORS_REGISTRY: IndicatorMeta[] = [
     label: 'Volume Profile',
     description: 'Горизонтальный профиль объёмов по видимому диапазону, прижат к правому краю.',
     defaultParams: { rows: 36, color: '#3b82f6', opacity: 0.35 },
+  },
+  {
+    type: 'renko',
+    label: 'Renko',
+    description: 'Блоки Renko поверх свечного графика — ширина по времени, высота по заданному размеру.',
+    defaultParams: { blockSize: null, source: 'close', bullColor: '#26a69a', bearColor: '#ef5350', opacity: 0.3 },
   },
 ];

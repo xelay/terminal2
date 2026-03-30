@@ -4,7 +4,7 @@ import { persist, createJSONStorage, StateStorage } from 'zustand/middleware';
 export type Timeframe = '1m' | '5m' | '15m' | '1h' | '4h' | '1d' | '1w' | '1M';
 export type Theme = 'dark' | 'light';
 
-export type IndicatorType = 'sma' | 'volume' | 'volume_profile';
+export type IndicatorType = 'sma' | 'volume' | 'volume_profile' | 'renko';
 
 export interface Indicator {
   id: string;

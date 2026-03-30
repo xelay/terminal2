@@ -9,23 +9,6 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          tags: ghcr.io/${{ github.repository }}:latest
-
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -33,9 +16,18 @@ jobs:
           username: ${{ secrets.SSH_USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            echo ${{ secrets.GITHUB_TOKEN }} | \
-              docker login ghcr.io -u ${{ github.actor }} --password-stdin
             cd ~/terminal2-deployment
-            docker compose pull
-            docker compose up -d --remove-orphans
+            git pull origin main
+            docker compose up -d --build --remove-orphans
             docker image prune -f
+
+      - name: Upload .env file
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cat > ~/terminal2-deployment/apps/backend/.env << 'EOF'
+            ${{ secrets.ENV_FILE }}
+            EOF

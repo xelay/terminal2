@@ -13,11 +13,9 @@ import '../styles/globals.css';
 export type DrawingTool = 'brush' | 'trendline' | null;
 
 const TIMEFRAMES: Timeframe[] = ['1m', '5m', '15m', '1h', '4h', '1d', '1w', '1M'];
-
 const ICON_DEFAULT = '#9598a1';
 const ICON_ACTIVE  = '#ffffff';
-
-const BACKEND_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+const BACKEND_URL  = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 const IconBrush = ({ color }: { color: string }) => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
@@ -26,7 +24,6 @@ const IconBrush = ({ color }: { color: string }) => (
     <path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1 1 2.48 1 3.5 1 1.96 0 3.5-1.54 3.5-3.5-.01-1.67-1.35-3.04-3-3.04z" />
   </svg>
 );
-
 const IconTrendLine = ({ color }: { color: string }) => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
     stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -35,14 +32,12 @@ const IconTrendLine = ({ color }: { color: string }) => (
     <circle cx="21" cy="4" r="1.5" fill={color} stroke="none" />
   </svg>
 );
-
 const IconMoon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
     stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
   </svg>
 );
-
 const IconSun = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
     stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -57,7 +52,6 @@ const IconSun = () => (
     <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
   </svg>
 );
-
 const IconGoogle = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
     <path fill="#4285F4" d="M23.745 12.27c0-.79-.07-1.54-.19-2.27h-11.3v4.51h6.47c-.29 1.48-1.14 2.73-2.4 3.58v3h3.86c2.26-2.09 3.56-5.17 3.56-8.82z"/>
@@ -75,7 +69,7 @@ export const App: React.FC = () => {
   const [isIndicatorsOpen, setIsIndicatorsOpen] = useState(false);
   const [activeTool, setActiveTool]             = useState<DrawingTool>(null);
   const [chartRefs, setChartRefs]               = useState<{ chart: any; series: any } | null>(null);
-  const candlesForModal = React.useRef<any[]>([]);
+  const [candlesRef, setCandlesRef]             = useState<React.MutableRefObject<any[]> | null>(null);
 
   const isDark = theme === 'dark';
   const colors = CHART_THEMES[theme];
@@ -103,7 +97,6 @@ export const App: React.FC = () => {
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     transition: 'background 0.15s', padding: 0, outline: 'none',
   });
-
   const secondaryBtnStyle: React.CSSProperties = {
     background: isDark ? '#2b2b43' : '#f0f3fa',
     color: colors.text, border: 'none', borderRadius: '4px',
@@ -111,7 +104,7 @@ export const App: React.FC = () => {
   };
 
   return (
-    <ChartRefsContext.Provider value={{ chartRefs, setChartRefs }}>
+    <ChartRefsContext.Provider value={{ chartRefs, setChartRefs, candlesRef, setCandlesRef }}>
       <div style={{
         display: 'flex', flexDirection: 'column', height: '100vh',
         background: colors.bg, color: colors.text,
@@ -125,7 +118,6 @@ export const App: React.FC = () => {
           <button onClick={() => setIsSearchOpen(true)} style={secondaryBtnStyle}>
             {exchange.toUpperCase()} : {symbol}
           </button>
-
           <div style={{ display: 'flex', gap: '2px' }}>
             {TIMEFRAMES.map(tf => (
               <button key={tf} onClick={() => setTimeframe(tf)} style={{
@@ -136,11 +128,9 @@ export const App: React.FC = () => {
               }}>{tf}</button>
             ))}
           </div>
-
           <button onClick={() => setIsIndicatorsOpen(true)} style={secondaryBtnStyle}>
             Индикаторы
           </button>
-
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
             {isLoggedIn ? (
               <button onClick={logout} style={{ ...secondaryBtnStyle, padding: '6px 12px', fontSize: 12, color: '#ef5350' }}>
@@ -175,7 +165,6 @@ export const App: React.FC = () => {
               <IconTrendLine color={activeTool === 'trendline' ? ICON_ACTIVE : ICON_DEFAULT} />
             </button>
           </aside>
-
           <main style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
             <ChartView />
             <CanvasOverlay
@@ -189,7 +178,6 @@ export const App: React.FC = () => {
         {isIndicatorsOpen && (
           <IndicatorsModal
             onClose={() => setIsIndicatorsOpen(false)}
-            candles={candlesForModal.current}
           />
         )}
         {isSearchOpen && <SymbolSearchModal onClose={() => setIsSearchOpen(false)} />}

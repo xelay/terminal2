@@ -23,7 +23,7 @@ export const ChartView: React.FC = () => {
   const { chartRef, candleSeriesRef, volumeSeriesRef, smaSeriesMapRef } =
     useLightweightChart(containerRef);
 
-  const { setChartRefs } = useChartRefs();
+  const { setChartRefs, setCandlesRef } = useChartRefs();
   const { exchange, symbol, timeframe, indicators } = useWorkspaceStore();
 
   const socketRef         = useRef<Socket | null>(null);
@@ -36,11 +36,15 @@ export const ChartView: React.FC = () => {
   const [priceArea, setPriceArea]             = useState({ top: 0, bottom: 0 });
   const [priceScaleWidth, setPriceScaleWidth] = useState(0);
   const [overlayTick, setOverlayTick]         = useState(0);
-
-  // Карта id → блоки — по одному массиву на каждый Renko-индикатор
-  const [renkoBlocksMap, setRenkoBlocksMap] = useState<Record<string, RenkoBlock[]>>({});
+  const [renkoBlocksMap, setRenkoBlocksMap]   = useState<Record<string, RenkoBlock[]>>({});
 
   useEffect(() => { indicatorsRef.current = indicators; }, [indicators]);
+
+  // Пробрасываем ref на свечи в контекст, чтобы RenkoForm мог читать данные
+  useEffect(() => {
+    setCandlesRef(candlesDataRef);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (chartRef.current && candleSeriesRef.current) {
@@ -105,7 +109,6 @@ export const ChartView: React.FC = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chartRef.current, candleSeriesRef.current, visibleRange]);
 
-  // Пересчёт блоков для всех Renko-индикаторов
   const rebuildRenko = useCallback(() => {
     const rkInds = indicatorsRef.current.filter(i => i.type === 'renko');
     if (rkInds.length === 0 || candlesDataRef.current.length === 0) {
@@ -284,8 +287,6 @@ export const ChartView: React.FC = () => {
 
   return (
     <div ref={containerRef} style={{ position: 'relative', width: '100%', height: '100%' }}>
-
-      {/* Рендерим отдельный overlay для каждого Renko индикатора */}
       {rkIndicators.map(ind =>
         renkoBlocksMap[ind.id]?.length > 0 && visibleRange ? (
           <RenkoOverlay
@@ -305,7 +306,6 @@ export const ChartView: React.FC = () => {
           />
         ) : null
       )}
-
       {vpIndicator && visibleRange && priceArea.bottom > priceArea.top && (
         <VolumeProfileOverlay
           candles={candlesDataRef.current}

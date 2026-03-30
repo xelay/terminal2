@@ -7,14 +7,13 @@ import { RenkoForm } from './RenkoForm';
 
 interface IndicatorsModalProps {
   onClose: () => void;
-  candles: Array<{ time: number; open: number; high: number; low: number; close: number; volume: number }>;
 }
 
 const NEW_SMA_ID = '__new_sma__';
 const NEW_VP_ID  = '__new_vp__';
 const NEW_RK_ID  = '__new_rk__';
 
-export const IndicatorsModal: React.FC<IndicatorsModalProps> = ({ onClose, candles }) => {
+export const IndicatorsModal: React.FC<IndicatorsModalProps> = ({ onClose }) => {
   const { indicators, addIndicator, removeIndicator } = useWorkspaceStore();
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -71,9 +70,7 @@ export const IndicatorsModal: React.FC<IndicatorsModalProps> = ({ onClose, candl
             <div style={{ fontSize: 13, opacity: 0.8 }}>Добавить новый индикатор:</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {INDICATORS_REGISTRY.map(meta => (
-                <button
-                  key={meta.type}
-                  onClick={() => handleAdd(meta)}
+                <button key={meta.type} onClick={() => handleAdd(meta)}
                   style={{
                     width: '100%', textAlign: 'left', background: '#131722',
                     borderRadius: 4, border: '1px solid #2b2b43',
@@ -85,7 +82,6 @@ export const IndicatorsModal: React.FC<IndicatorsModalProps> = ({ onClose, candl
                 </button>
               ))}
             </div>
-
             {indicators.length > 0 && (
               <div style={{ fontSize: 13 }}>
                 <div style={{ opacity: 0.8, marginBottom: 6 }}>Уже добавлены:</div>
@@ -132,10 +128,9 @@ export const IndicatorsModal: React.FC<IndicatorsModalProps> = ({ onClose, candl
             )}
           </>
         )}
-
         {showSMAForm && <SMAForm indicatorId={isNewSMA ? undefined : editingIndicator?.id} onClose={() => setEditingId(null)} />}
         {showVPForm  && <VolumeProfileForm indicatorId={isNewVP ? undefined : editingIndicator?.id} onClose={() => setEditingId(null)} />}
-        {showRKForm  && <RenkoForm indicatorId={isNewRK ? undefined : editingIndicator?.id} candles={candles} onClose={() => setEditingId(null)} />}
+        {showRKForm  && <RenkoForm indicatorId={isNewRK ? undefined : editingIndicator?.id} onClose={() => setEditingId(null)} />}
       </div>
     </div>
   );

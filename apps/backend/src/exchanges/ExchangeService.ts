@@ -1,6 +1,6 @@
 import { ExchangeAdapter, SymbolResult } from './types';
 import { BybitAdapter } from './adapters/BybitAdapter';
-import { MoexAdapter } from './adapters/MoexAdapter';
+// import { MoexAdapter } from './adapters/MoexAdapter'; // disabled: noisy logs, bad data
 import { TinkoffAdapter } from './adapters/TinkoffAdapter';
 
 class ExchangeService {
@@ -8,7 +8,7 @@ class ExchangeService {
 
   constructor() {
     this.registerAdapter(new BybitAdapter());
-    this.registerAdapter(new MoexAdapter());
+    // this.registerAdapter(new MoexAdapter()); // disabled
     this.registerAdapter(new TinkoffAdapter());
   }
 
@@ -22,7 +22,7 @@ class ExchangeService {
     return adapter;
   }
 
-  /** Параллельный поиск по всем адаптерам */
+  /** Параллельный поиск по всем активным адаптерам */
   async searchAll(query: string): Promise<SymbolResult[]> {
     const adapters = [...this.adapters.values()];
     const results = await Promise.allSettled(

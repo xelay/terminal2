@@ -1,9 +1,10 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { LogicalRange, Time, HistogramData, LineData } from 'lightweight-charts';
 import { io, Socket } from 'socket.io-client';
 import { useWorkspaceStore } from '../../store/workspace';
 import { useLightweightChart } from './lwc/useLightweightChart';
 import { useChartRefs } from './ChartRefsContext';
+import { VolumeProfileOverlay } from './indicators/VolumeProfileOverlay';
 
 const tfToSeconds: Record<string, number> = {
   '1m': 60, '5m': 300, '15m': 900,
@@ -23,10 +24,16 @@ export const ChartView: React.FC = () => {
   const { setChartRefs } = useChartRefs();
   const { exchange, symbol, timeframe, indicators } = useWorkspaceStore();
 
-  const socketRef = useRef<Socket | null>(null);
-  const candlesDataRef = useRef<Candle[]>([]);
-  const isFetchingHistory = useRef(false);
-  const indicatorsRef = useRef(indicators);
+  const socketRef           = useRef<Socket | null>(null);
+  const candlesDataRef      = useRef<Candle[]>([]);
+  const isFetchingHistory   = useRef(false);
+  const indicatorsRef       = useRef(indicators);
+
+  // Volume Profile state
+  const [visibleRange, setVisibleRange]   = useState<{ from: number; to: number } | null>(null);
+  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
+  // Ценовая область чарта (в px от верху контейнера)
+  const [priceArea, setPriceArea]         = useState({ top: 0, bottom: 0 });
 
   useEffect(() => { indicatorsRef.current = indicators; }, [indicators]);
 
@@ -37,10 +44,64 @@ export const ChartView: React.FC = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chartRef.current, candleSeriesRef.current]);
 
+  // ―― Отслеживаем размер контейнера ――
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const update = () => setContainerSize({ width: el.clientWidth, height: el.clientHeight });
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // ―― Отслеживаем видимый диапазон времени ――
+  useEffect(() => {
+    if (!chartRef.current) return;
+    const ts = chartRef.current.timeScale();
+    const update = () => {
+      const r = ts.getVisibleRange();
+      if (r) setVisibleRange({ from: Number(r.from), to: Number(r.to) });
+    };
+    update();
+    ts.subscribeVisibleTimeRangeChange(update);
+    return () => ts.unsubscribeVisibleTimeRangeChange(update);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chartRef.current]);
+
+  // ―― Отслеживаем ценовую область чарта (px) ――
+  useEffect(() => {
+    if (!chartRef.current || !candleSeriesRef.current) return;
+    const update = () => {
+      if (!candleSeriesRef.current) return;
+      const ps = candleSeriesRef.current.priceScale();
+      // Берём видимый ценовой диапазон через priceToCoordinate
+      const visible = candlesDataRef.current.filter(
+        c => visibleRange ? c.time >= visibleRange.from && c.time <= visibleRange.to : true
+      );
+      if (!visible.length) return;
+      const minP = Math.min(...visible.map(c => c.low));
+      const maxP = Math.max(...visible.map(c => c.high));
+      const topY    = candleSeriesRef.current.priceToCoordinate(maxP);
+      const bottomY = candleSeriesRef.current.priceToCoordinate(minP);
+      if (topY !== null && bottomY !== null) {
+        setPriceArea({ top: topY, bottom: bottomY });
+      }
+    };
+    update();
+    chartRef.current.timeScale().subscribeVisibleTimeRangeChange(update);
+    chartRef.current.timeScale().subscribeVisibleLogicalRangeChange(update);
+    return () => {
+      chartRef.current?.timeScale().unsubscribeVisibleTimeRangeChange(update);
+      chartRef.current?.timeScale().unsubscribeVisibleLogicalRangeChange(update);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chartRef.current, candleSeriesRef.current, visibleRange]);
+
   const syncVolume = () => {
-    const hasVolume = indicatorsRef.current.some((i) => i.type === 'volume');
+    const hasVolume = indicatorsRef.current.some(i => i.type === 'volume');
     if (!hasVolume) { volumeSeriesRef.current?.setData([]); return; }
-    const vols: HistogramData<Time>[] = candlesDataRef.current.map((c) => ({
+    const vols: HistogramData<Time>[] = candlesDataRef.current.map(c => ({
       time: c.time as Time, value: c.volume,
       color: c.close >= c.open ? '#26a69a80' : '#ef535080',
     }));
@@ -49,11 +110,11 @@ export const ChartView: React.FC = () => {
 
   const syncSMASeries = () => {
     if (!chartRef.current) return;
-    const smaIndicators = indicatorsRef.current.filter((i) => i.type === 'sma');
+    const smaIndicators = indicatorsRef.current.filter(i => i.type === 'sma');
     const map = smaSeriesMapRef.current;
     const src = candlesDataRef.current;
     for (const [id, series] of map.entries()) {
-      if (!smaIndicators.find((i) => i.id === id)) {
+      if (!smaIndicators.find(i => i.id === id)) {
         chartRef.current.removeSeries(series); map.delete(id);
       }
     }
@@ -101,7 +162,7 @@ export const ChartView: React.FC = () => {
           const raw: Candle[] = candles.slice().sort((a: Candle, b: Candle) => a.time - b.time);
           candlesDataRef.current = raw;
           candleSeriesRef.current?.setData(
-            raw.map((c) => ({ time: c.time as Time, open: c.open, high: c.high, low: c.low, close: c.close }))
+            raw.map(c => ({ time: c.time as Time, open: c.open, high: c.high, low: c.low, close: c.close }))
           );
           syncVolume(); syncSMASeries();
         } else {
@@ -134,7 +195,7 @@ export const ChartView: React.FC = () => {
         time: newCandle.time as Time, open: newCandle.open,
         high: newCandle.high, low: newCandle.low, close: newCandle.close,
       });
-      if (indicatorsRef.current.some((i) => i.type === 'volume')) {
+      if (indicatorsRef.current.some(i => i.type === 'volume')) {
         volumeSeriesRef.current?.update({
           time: newCandle.time as Time, value: newCandle.volume,
           color: newCandle.close >= newCandle.open ? '#26a69a80' : '#ef535080',
@@ -191,7 +252,24 @@ export const ChartView: React.FC = () => {
     return () => timeScale.unsubscribeVisibleLogicalRangeChange(onRange);
   }, [exchange, symbol, timeframe, chartRef]);
 
+  const vpIndicator = indicators.find(i => i.type === 'volume_profile');
+
   return (
-    <div ref={containerRef} style={{ position: 'relative', width: '100%', height: '100%' }} />
+    <div ref={containerRef} style={{ position: 'relative', width: '100%', height: '100%' }}>
+      {vpIndicator && visibleRange && priceArea.bottom > priceArea.top && (
+        <VolumeProfileOverlay
+          candles={candlesDataRef.current}
+          visibleFrom={visibleRange.from}
+          visibleTo={visibleRange.to}
+          containerHeight={containerSize.height}
+          profileWidth={vpIndicator.params.profileWidth ?? 120}
+          rows={vpIndicator.params.rows ?? 36}
+          color={vpIndicator.params.color ?? '#3b82f6'}
+          opacity={vpIndicator.params.opacity ?? 0.35}
+          priceTop={priceArea.top}
+          priceBottom={priceArea.bottom}
+        />
+      )}
+    </div>
   );
 };

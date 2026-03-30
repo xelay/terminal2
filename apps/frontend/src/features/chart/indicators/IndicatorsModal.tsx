@@ -2,63 +2,54 @@ import React, { useState } from 'react';
 import { useWorkspaceStore } from '../../../store/workspace';
 import { INDICATORS_REGISTRY, IndicatorMeta } from './registry';
 import { SMAForm } from './SMAForm';
+import { VolumeProfileForm } from './VolumeProfileForm';
 
 interface IndicatorsModalProps {
   onClose: () => void;
 }
 
-const NEW_SMA_ID = '__new__';
+const NEW_SMA_ID            = '__new_sma__';
+const NEW_VP_ID             = '__new_vp__';
 
 export const IndicatorsModal: React.FC<IndicatorsModalProps> = ({ onClose }) => {
   const { indicators, addIndicator, removeIndicator } = useWorkspaceStore();
   const [editingId, setEditingId] = useState<string | null>(null);
 
-  const isCreatingNew = editingId === NEW_SMA_ID;
-  const editingIndicator = editingId && !isCreatingNew
-    ? indicators.find((i) => i.id === editingId)
+  const isNewSMA = editingId === NEW_SMA_ID;
+  const isNewVP  = editingId === NEW_VP_ID;
+  const editingIndicator = editingId && !isNewSMA && !isNewVP
+    ? indicators.find(i => i.id === editingId)
     : undefined;
-  const showForm = isCreatingNew || !!editingIndicator;
+
+  const showSMAForm = isNewSMA || editingIndicator?.type === 'sma';
+  const showVPForm  = isNewVP  || editingIndicator?.type === 'volume_profile';
+  const showForm    = showSMAForm || showVPForm;
 
   const handleAdd = (meta: IndicatorMeta) => {
-    if (meta.type === 'sma') {
-      setEditingId(NEW_SMA_ID);
-      return;
-    }
-    if (meta.type === 'volume') {
-      addIndicator('volume', meta.defaultParams);
-    }
+    if (meta.type === 'sma') { setEditingId(NEW_SMA_ID); return; }
+    if (meta.type === 'volume_profile') { setEditingId(NEW_VP_ID); return; }
+    if (meta.type === 'volume') addIndicator('volume', meta.defaultParams);
   };
 
+  const formTitle = isNewSMA ? 'Добавить SMA'
+    : isNewVP ? 'Добавить Volume Profile'
+    : editingIndicator?.type === 'sma' ? 'Настройки SMA'
+    : 'Настройки Volume Profile';
+
   return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(0,0,0,0.5)',
-        zIndex: 200,
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-      }}
-    >
-      <div
-        style={{
-          width: 420,
-          maxHeight: 560,
-          background: '#1e222d',
-          borderRadius: 8,
-          padding: 16,
-          color: '#d1d4dc',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 16,
-          overflowY: 'auto',
-        }}
-      >
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
+      zIndex: 200, display: 'flex', justifyContent: 'center', alignItems: 'center',
+    }}>
+      <div style={{
+        width: 420, maxHeight: 560, background: '#1e222d', borderRadius: 8,
+        padding: 16, color: '#d1d4dc', display: 'flex', flexDirection: 'column',
+        gap: 16, overflowY: 'auto',
+      }}>
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h3 style={{ margin: 0, color: '#fff' }}>
-            {showForm ? (isCreatingNew ? 'Добавить SMA' : 'Настройки SMA') : 'Индикаторы'}
+            {showForm ? formTitle : 'Индикаторы'}
           </h3>
           <button
             onClick={showForm ? () => setEditingId(null) : onClose}
@@ -70,22 +61,16 @@ export const IndicatorsModal: React.FC<IndicatorsModalProps> = ({ onClose }) => 
 
         {!showForm && (
           <>
-            {/* Добавить новый */}
             <div style={{ fontSize: 13, opacity: 0.8 }}>Добавить новый индикатор:</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {INDICATORS_REGISTRY.map((meta) => (
+              {INDICATORS_REGISTRY.map(meta => (
                 <button
                   key={meta.type}
                   onClick={() => handleAdd(meta)}
                   style={{
-                    width: '100%',
-                    textAlign: 'left',
-                    background: '#131722',
-                    borderRadius: 4,
-                    border: '1px solid #2b2b43',
-                    padding: '8px 12px',
-                    color: '#fff',
-                    cursor: 'pointer',
+                    width: '100%', textAlign: 'left', background: '#131722',
+                    borderRadius: 4, border: '1px solid #2b2b43',
+                    padding: '8px 12px', color: '#fff', cursor: 'pointer',
                   }}
                 >
                   <div style={{ fontSize: 14 }}>{meta.label}</div>
@@ -94,70 +79,53 @@ export const IndicatorsModal: React.FC<IndicatorsModalProps> = ({ onClose }) => 
               ))}
             </div>
 
-            {/* Список добавленных */}
             {indicators.length > 0 && (
               <div style={{ fontSize: 13 }}>
                 <div style={{ opacity: 0.8, marginBottom: 6 }}>Уже добавлены:</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  {indicators.map((ind) => (
+                  {indicators.map(ind => (
                     <div
                       key={ind.id}
                       style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 8,
-                        padding: '6px 8px',
-                        borderRadius: 4,
-                        background: '#131722',
+                        display: 'flex', alignItems: 'center', gap: 8,
+                        padding: '6px 8px', borderRadius: 4, background: '#131722',
                       }}
                     >
-                      {/* Название и параметры */}
                       <span style={{ flex: 1, fontSize: 12 }}>
-                        {ind.type.toUpperCase()}
+                        {ind.type === 'volume_profile' ? 'VOLUME PROFILE' : ind.type.toUpperCase()}
                         {ind.type === 'sma' && (
                           <span style={{ marginLeft: 6, opacity: 0.5, fontSize: 11 }}>
                             period={ind.params.period ?? 20}
                           </span>
                         )}
+                        {ind.type === 'volume_profile' && (
+                          <span style={{ marginLeft: 6, opacity: 0.5, fontSize: 11 }}>
+                            rows={ind.params.rows ?? 36}
+                          </span>
+                        )}
                       </span>
 
-                      {/* Кнопка настроек (только для SMA) */}
-                      {ind.type === 'sma' && (
+                      {(ind.type === 'sma' || ind.type === 'volume_profile') && (
                         <button
                           onClick={() => setEditingId(ind.id)}
                           title="Настройки"
                           style={{
-                            background: 'transparent',
-                            border: '1px solid #2b2b43',
-                            borderRadius: 4,
-                            color: '#2962FF',
-                            cursor: 'pointer',
-                            padding: '2px 8px',
-                            fontSize: 12,
-                            lineHeight: '18px',
+                            background: 'transparent', border: '1px solid #2b2b43',
+                            borderRadius: 4, color: '#2962FF', cursor: 'pointer',
+                            padding: '2px 8px', fontSize: 12, lineHeight: '18px',
                           }}
-                        >
-                          ⚙️
-                        </button>
+                        >⚙️</button>
                       )}
 
-                      {/* Кнопка удалить */}
                       <button
                         onClick={() => removeIndicator(ind.id)}
                         title="Удалить"
                         style={{
-                          background: 'transparent',
-                          border: '1px solid #ef5350',
-                          borderRadius: 4,
-                          color: '#ef5350',
-                          cursor: 'pointer',
-                          padding: '2px 8px',
-                          fontSize: 12,
-                          lineHeight: '18px',
+                          background: 'transparent', border: '1px solid #ef5350',
+                          borderRadius: 4, color: '#ef5350', cursor: 'pointer',
+                          padding: '2px 8px', fontSize: 12, lineHeight: '18px',
                         }}
-                      >
-                        ✕
-                      </button>
+                      >✕</button>
                     </div>
                   ))}
                 </div>
@@ -166,9 +134,15 @@ export const IndicatorsModal: React.FC<IndicatorsModalProps> = ({ onClose }) => 
           </>
         )}
 
-        {showForm && (
+        {showSMAForm && (
           <SMAForm
-            indicatorId={isCreatingNew ? undefined : editingIndicator?.id}
+            indicatorId={isNewSMA ? undefined : editingIndicator?.id}
+            onClose={() => setEditingId(null)}
+          />
+        )}
+        {showVPForm && (
+          <VolumeProfileForm
+            indicatorId={isNewVP ? undefined : editingIndicator?.id}
             onClose={() => setEditingId(null)}
           />
         )}

@@ -1,35 +1,46 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useWorkspaceStore } from '../../store/workspace';
 
-type Exchange = 'bybit' | 'moex';
+interface SymbolResult {
+  exchange: string;
+  symbol: string;
+  description: string;
+}
 
-interface SymbolSearchModalProps {
+interface Props {
   onClose: () => void;
 }
 
-export const SymbolSearchModal: React.FC<SymbolSearchModalProps> = ({ onClose }) => {
-  const { setSymbol } = useWorkspaceStore();
-  const [exchange, setExchange] = useState<Exchange>('bybit');
-  const [query, setQuery] = useState('');
-  const [results, setResults] = useState<string[]>([]);
+const EXCHANGE_LABEL: Record<string, { label: string; bg: string; color: string }> = {
+  bybit: { label: 'BYBIT', bg: '#1a3a5c', color: '#2962FF' },
+  moex:  { label: 'MOEX',  bg: '#1a3a2c', color: '#26a69a' },
+};
+
+export const SymbolSearchModal: React.FC<Props> = ({ onClose }) => {
+  const { setSymbol, theme } = useWorkspaceStore();
+  const isDark = theme === 'dark';
+
+  const [query, setQuery]     = useState('');
+  const [results, setResults] = useState<SymbolResult[]>([]);
   const [loading, setLoading] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef   = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Фокус на инпут при открытии
-  useEffect(() => {
-    setTimeout(() => inputRef.current?.focus(), 50);
-  }, []);
+  useEffect(() => { setTimeout(() => inputRef.current?.focus(), 50); }, []);
 
-  const search = async (q: string, exch: Exchange) => {
-    if (!q.trim()) {
-      setResults([]);
-      return;
-    }
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const search = async (q: string) => {
+    if (!q.trim()) { setResults([]); return; }
     setLoading(true);
     try {
+      // Без exchange — бэк ищет по всем биржам параллельно
       const res = await fetch(
-        `${import.meta.env.VITE_API_URL}/api/market/search?exchange=${exch}&query=${encodeURIComponent(q)}`,
+        `${import.meta.env.VITE_API_URL}/api/market/search?query=${encodeURIComponent(q)}`,
       );
       const data = await res.json();
       setResults(data.symbols || []);
@@ -44,175 +55,118 @@ export const SymbolSearchModal: React.FC<SymbolSearchModalProps> = ({ onClose })
     const val = e.target.value;
     setQuery(val);
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => search(val, exchange), 300);
+    debounceRef.current = setTimeout(() => search(val), 300);
   };
 
-  const handleExchangeChange = (exch: Exchange) => {
-    setExchange(exch);
-    setResults([]);
-    if (query.trim()) search(query, exch);
-  };
-
-  const handleSelect = (sym: string) => {
-    setSymbol(exchange, sym);
+  const handleSelect = (r: SymbolResult) => {
+    setSymbol(r.exchange, r.symbol);
     onClose();
   };
 
-  // Закрытие по Escape
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
-  const btnBase: React.CSSProperties = {
-    flex: 1,
-    padding: '6px 0',
-    border: 'none',
-    borderRadius: 4,
-    cursor: 'pointer',
-    fontSize: 13,
-    transition: 'background 0.15s',
-  };
+  const bg      = isDark ? '#1e222d' : '#fff';
+  const inputBg = isDark ? '#131722' : '#f5f5fa';
+  const border  = isDark ? '#2b2b43' : '#dde1eb';
+  const textColor = isDark ? '#d1d4dc' : '#131722';
 
   return (
     <div
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
       style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(0,0,0,0.6)',
-        zIndex: 200,
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'flex-start',
-        paddingTop: 80,
+        position: 'fixed', inset: 0,
+        background: 'rgba(0,0,0,0.55)',
+        zIndex: 200, display: 'flex',
+        justifyContent: 'center', alignItems: 'flex-start', paddingTop: 80,
       }}
     >
-      <div
-        style={{
-          width: 480,
-          background: '#1e222d',
-          borderRadius: 8,
-          overflow: 'hidden',
-          boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
-          display: 'flex',
-          flexDirection: 'column',
-        }}
-      >
+      <div style={{
+        width: 520, background: bg, borderRadius: 8,
+        overflow: 'hidden', boxShadow: '0 8px 32px rgba(0,0,0,0.45)',
+        display: 'flex', flexDirection: 'column',
+      }}>
         {/* Заголовок */}
-        <div style={{ padding: '14px 16px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ color: '#fff', fontWeight: 600, fontSize: 15 }}>Поиск символа</span>
-          <button
-            onClick={onClose}
-            style={{ background: 'transparent', border: 'none', color: '#888', cursor: 'pointer', fontSize: 18, lineHeight: 1 }}
-          >✕</button>
-        </div>
-
-        {/* Биржа */}
-        <div style={{ display: 'flex', gap: 6, padding: '12px 16px 0' }}>
-          {(['bybit', 'moex'] as Exchange[]).map((exch) => (
-            <button
-              key={exch}
-              onClick={() => handleExchangeChange(exch)}
-              style={{
-                ...btnBase,
-                background: exchange === exch ? '#2962FF' : '#2b2b43',
-                color: exchange === exch ? '#fff' : '#aaa',
-              }}
-            >
-              {exch === 'bybit' ? 'Bybit' : 'MOEX'}
-            </button>
-          ))}
+        <div style={{
+          padding: '14px 16px 12px',
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          borderBottom: `1px solid ${border}`,
+        }}>
+          <span style={{ color: textColor, fontWeight: 600, fontSize: 15 }}>Поиск символа</span>
+          <button onClick={onClose} style={{
+            background: 'transparent', border: 'none',
+            color: '#888', cursor: 'pointer', fontSize: 18, lineHeight: 1,
+          }}>✕</button>
         </div>
 
         {/* Инпут */}
-        <div style={{ padding: '10px 16px 0' }}>
+        <div style={{ padding: '12px 16px' }}>
           <input
             ref={inputRef}
             type="text"
             value={query}
             onChange={handleQueryChange}
-            placeholder={
-              exchange === 'bybit'
-                ? 'Например: BTC, ETH/USDT, SOL...'
-                : 'Например: SBER, GAZP, LKOH...'
-            }
+            placeholder="SBER, BTC/USDT, GAZP, ETH..."
             style={{
-              width: '100%',
-              padding: '10px 12px',
-              background: '#131722',
-              border: '1px solid #2b2b43',
-              borderRadius: 4,
-              color: '#fff',
-              fontSize: 14,
-              boxSizing: 'border-box',
-              outline: 'none',
+              width: '100%', padding: '10px 12px',
+              background: inputBg, border: `1px solid ${border}`,
+              borderRadius: 4, color: textColor, fontSize: 14,
+              boxSizing: 'border-box', outline: 'none',
             }}
           />
         </div>
 
         {/* Результаты */}
-        <div
-          style={{
-            minHeight: 60,
-            maxHeight: 360,
-            overflowY: 'auto',
-            padding: '8px 8px 8px',
-            marginTop: 4,
-          }}
-        >
+        <div style={{ minHeight: 60, maxHeight: 380, overflowY: 'auto', paddingBottom: 8 }}>
           {loading && (
-            <div style={{ color: '#888', fontSize: 13, textAlign: 'center', padding: '16px 0' }}>
+            <div style={{ color: '#888', fontSize: 13, textAlign: 'center', padding: '20px 0' }}>
               Поиск...
             </div>
           )}
-
           {!loading && query.trim() && results.length === 0 && (
-            <div style={{ color: '#888', fontSize: 13, textAlign: 'center', padding: '16px 0' }}>
+            <div style={{ color: '#888', fontSize: 13, textAlign: 'center', padding: '20px 0' }}>
               Ничего не найдено
             </div>
           )}
-
-          {!loading && results.map((sym) => (
-            <button
-              key={sym}
-              onClick={() => handleSelect(sym)}
-              style={{
-                width: '100%',
-                textAlign: 'left',
-                background: 'transparent',
-                border: 'none',
-                borderRadius: 4,
-                color: '#d1d4dc',
-                padding: '8px 10px',
-                cursor: 'pointer',
-                fontSize: 14,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-              }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = '#2b2b43')}
-              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-            >
-              <span
+          {!loading && results.map((r, i) => {
+            const exMeta = EXCHANGE_LABEL[r.exchange] ?? { label: r.exchange.toUpperCase(), bg: '#2b2b43', color: '#aaa' };
+            return (
+              <button
+                key={`${r.exchange}:${r.symbol}:${i}`}
+                onClick={() => handleSelect(r)}
                 style={{
-                  fontSize: 10,
-                  background: exchange === 'bybit' ? '#1a3a5c' : '#1a3a2c',
-                  color: exchange === 'bybit' ? '#2962FF' : '#26a69a',
-                  padding: '2px 5px',
-                  borderRadius: 3,
-                  fontWeight: 700,
-                  letterSpacing: 0.5,
-                  minWidth: 38,
-                  textAlign: 'center',
+                  width: '100%', textAlign: 'left',
+                  background: 'transparent', border: 'none',
+                  borderRadius: 0, color: textColor,
+                  padding: '8px 16px', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: 12,
                 }}
+                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = isDark ? '#2b2b43' : '#f0f3fa'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
               >
-                {exchange === 'bybit' ? 'BYBIT' : 'MOEX'}
-              </span>
-              {sym}
-            </button>
-          ))}
+                {/* Бейдж биржи */}
+                <span style={{
+                  fontSize: 10, background: exMeta.bg, color: exMeta.color,
+                  padding: '2px 5px', borderRadius: 3,
+                  fontWeight: 700, letterSpacing: 0.5,
+                  minWidth: 42, textAlign: 'center', flexShrink: 0,
+                }}>
+                  {exMeta.label}
+                </span>
+                {/* Символ + дескрипшн */}
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: textColor }}>
+                    {r.symbol}
+                  </div>
+                  {r.description && r.description !== r.symbol && (
+                    <div style={{
+                      fontSize: 11, color: isDark ? '#9598a1' : '#888',
+                      marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}>
+                      {r.description}
+                    </div>
+                  )}
+                </div>
+              </button>
+            );
+          })}
         </div>
       </div>
     </div>

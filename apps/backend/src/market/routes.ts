@@ -3,13 +3,24 @@ import { exchangeService } from '../exchanges/ExchangeService';
 
 export const marketRouter = Router();
 
-// Поиск символов
+// Поиск символов — по всем биржам если exchange не указан
 marketRouter.get('/search', async (req, res) => {
   const { exchange, query } = req.query;
+  if (!query || !(query as string).trim()) {
+    res.json({ symbols: [] });
+    return;
+  }
   try {
-    const adapter = exchangeService.getAdapter(exchange as string);
-    const symbols = await adapter.searchSymbols(query as string);
-    res.json({ symbols });
+    if (exchange) {
+      // Обратная совместимость: по одной бирже
+      const adapter = exchangeService.getAdapter(exchange as string);
+      const symbols = await adapter.searchSymbols(query as string);
+      res.json({ symbols });
+    } else {
+      // Параллельный поиск по всем
+      const symbols = await exchangeService.searchAll(query as string);
+      res.json({ symbols });
+    }
   } catch (e: any) {
     res.status(400).json({ error: e.message });
   }
@@ -19,7 +30,6 @@ marketRouter.get('/search', async (req, res) => {
 marketRouter.get('/history', async (req, res) => {
   const { exchange, symbol, tf, from, limit } = req.query;
 
-  // Отключаем ETag/304 кэширование — данные всегда должны приходить свежими
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
   res.set('Pragma', 'no-cache');
   res.set('ETag', '');

@@ -1,4 +1,4 @@
-import { ExchangeAdapter } from './types';
+import { ExchangeAdapter, SymbolResult } from './types';
 import { BybitAdapter } from './adapters/BybitAdapter';
 import { MoexAdapter } from './adapters/MoexAdapter';
 
@@ -18,6 +18,17 @@ class ExchangeService {
     const adapter = this.adapters.get(exchangeId);
     if (!adapter) throw new Error(`Exchange adapter '${exchangeId}' not found`);
     return adapter;
+  }
+
+  /** Параллельный поиск по всем адаптерам */
+  async searchAll(query: string): Promise<SymbolResult[]> {
+    const adapters = [...this.adapters.values()];
+    const results = await Promise.allSettled(
+      adapters.map(a => a.searchSymbols(query))
+    );
+    return results
+      .filter((r): r is PromiseFulfilledResult<SymbolResult[]> => r.status === 'fulfilled')
+      .flatMap(r => r.value);
   }
 }
 

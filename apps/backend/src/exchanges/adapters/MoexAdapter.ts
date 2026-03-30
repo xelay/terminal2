@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { ExchangeAdapter, Candle, Timeframe } from '../types';
+import { ExchangeAdapter, Candle, Timeframe, SymbolResult } from '../types';
 
 const MOEX_INTERVALS: Record<string, number> = {
   '1m': 1, '10m': 10, '1h': 60, '1d': 24, '1w': 7, '1M': 31,
@@ -70,33 +70,17 @@ export class MoexAdapter implements ExchangeAdapter {
       .filter((c: Candle) => !isNaN(c.time) && !isNaN(c.open));
   }
 
-  /**
-   * Получить последние N нативных свечей.
-   * Сначала запрашиваем start=0 чтобы узнать TOTAL,
-   * затем запрашиваем start=TOTAL-N.
-   */
-  private async fetchLastNative(
-    symbol: string,
-    nativeInterval: string,
-    n: number,
-    tillTime?: number,
-  ): Promise<Candle[]> {
+  private async fetchLastNative(symbol: string, nativeInterval: string, n: number, tillTime?: number): Promise<Candle[]> {
     const till = tillTime ? toDateStr(tillTime) : toDateStr(Math.floor(Date.now() / 1000) + 86400);
-
-    // Шаг 1: пробный запрос для получения TOTAL
     const probeUrl = this.buildUrl(symbol, nativeInterval, undefined, till, 0);
     const probeRes = await axios.get(probeUrl);
     const cursor = probeRes.data?.candles?.cursor;
-    // cursor — это массив [[INDEX, TOTAL, PAGESIZE]]
     let total: number = cursor?.data?.[0]?.[1] ?? 0;
 
-    // Если cursor не вернул total, берём из первого запроса данные и пагинируем
     if (!total) {
       const firstBatch = this.parseCandlesBlock(probeRes.data?.candles);
       if (!firstBatch.length) return [];
-      // Если меньше страницы — это все данные
       if (firstBatch.length < 500) return firstBatch.slice(-n);
-      // Иначе пагинируем
       let all = [...firstBatch];
       let start = 500;
       while (true) {
@@ -111,7 +95,6 @@ export class MoexAdapter implements ExchangeAdapter {
       return all.slice(-n);
     }
 
-    // Шаг 2: знаем TOTAL — запрашиваем страницы начиная с max(0, TOTAL-n)
     const startFrom = Math.max(0, total - n);
     let candles: Candle[] = [];
     let start = startFrom;
@@ -127,17 +110,8 @@ export class MoexAdapter implements ExchangeAdapter {
     return candles;
   }
 
-  /**
-   * Подгрузка старых данных до fromTime (пагинация назад)
-   */
-  private async fetchBeforeTime(
-    symbol: string,
-    nativeInterval: string,
-    beforeTime: number,
-    n: number,
-  ): Promise<Candle[]> {
+  private async fetchBeforeTime(symbol: string, nativeInterval: string, beforeTime: number, n: number): Promise<Candle[]> {
     const till = toDateStr(beforeTime);
-
     const probeUrl = this.buildUrl(symbol, nativeInterval, undefined, till, 0);
     const probeRes = await axios.get(probeUrl);
     const cursor = probeRes.data?.candles?.cursor;
@@ -163,15 +137,9 @@ export class MoexAdapter implements ExchangeAdapter {
     return candles.filter(c => c.time < beforeTime).slice(-n);
   }
 
-  async getHistoricalCandles(
-    symbol: string,
-    timeframe: Timeframe,
-    fromTime?: number,
-    limit = 500,
-  ): Promise<Candle[]> {
+  async getHistoricalCandles(symbol: string, timeframe: Timeframe, fromTime?: number, limit = 500): Promise<Candle[]> {
     const { native, mult } = TF_CONFIG[timeframe];
     const nativeLimit = limit * mult;
-
     try {
       let candles: Candle[];
       if (fromTime) {
@@ -179,13 +147,10 @@ export class MoexAdapter implements ExchangeAdapter {
       } else {
         candles = await this.fetchLastNative(symbol, native, nativeLimit);
       }
-
-      // Дедубликация
       const seen = new Set<number>();
       candles = candles
         .filter(c => { if (seen.has(c.time)) return false; seen.add(c.time); return true; })
         .sort((a, b) => a.time - b.time);
-
       return aggregateCandles(candles, mult).slice(-limit);
     } catch (e) {
       console.error('MOEX REST Error:', e);
@@ -193,20 +158,12 @@ export class MoexAdapter implements ExchangeAdapter {
     }
   }
 
-  subscribeRealtime(
-    symbol: string,
-    timeframe: Timeframe,
-    onCandleUpdate: (candle: Candle) => void,
-  ): () => void {
+  subscribeRealtime(symbol: string, timeframe: Timeframe, onCandleUpdate: (candle: Candle) => void): () => void {
     let isActive = true;
     const pollLoop = async () => {
       while (isActive) {
         try {
-          const candles = await this.fetchLastNative(
-            symbol,
-            TF_CONFIG[timeframe].native,
-            TF_CONFIG[timeframe].mult * 2,
-          );
+          const candles = await this.fetchLastNative(symbol, TF_CONFIG[timeframe].native, TF_CONFIG[timeframe].mult * 2);
           if (candles.length > 0) {
             const agg = aggregateCandles(candles, TF_CONFIG[timeframe].mult);
             onCandleUpdate(agg[agg.length - 1]);
@@ -221,24 +178,30 @@ export class MoexAdapter implements ExchangeAdapter {
     return () => { isActive = false; };
   }
 
-  async searchSymbols(query: string): Promise<string[]> {
+  async searchSymbols(query: string): Promise<SymbolResult[]> {
     try {
       const url =
         `https://iss.moex.com/iss/securities.json` +
         `?q=${encodeURIComponent(query)}&iss.meta=off` +
-        `&securities.columns=secid,shortname,is_traded,primary_boardid&limit=30`;
+        `&securities.columns=secid,shortname,name,is_traded,primary_boardid&limit=30`;
       const res = await axios.get(url);
       const block = res.data?.securities;
       if (!block) return [];
       const columns: string[] = block.columns;
       const data: any[][] = block.data;
-      const iSecid  = columns.indexOf('secid');
-      const iTraded = columns.indexOf('is_traded');
-      const iBoard  = columns.indexOf('primary_boardid');
+      const iSecid     = columns.indexOf('secid');
+      const iShortname = columns.indexOf('shortname');
+      const iName      = columns.indexOf('name');
+      const iTraded    = columns.indexOf('is_traded');
+      const iBoard     = columns.indexOf('primary_boardid');
       return data
         .filter(row => row[iTraded] === 1 && ['TQBR', 'TQTF', 'TQIF'].includes(row[iBoard]))
-        .map(row => row[iSecid] as string)
-        .filter(Boolean)
+        .map(row => ({
+          exchange: 'moex',
+          symbol:      row[iSecid]     as string,
+          description: (row[iShortname] || row[iName] || row[iSecid]) as string,
+        }))
+        .filter(r => r.symbol)
         .slice(0, 20);
     } catch (e) {
       console.error('MOEX search error:', e);

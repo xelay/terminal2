@@ -36,7 +36,10 @@ export const ChartView: React.FC = () => {
   const [priceArea, setPriceArea]             = useState({ top: 0, bottom: 0 });
   const [priceScaleWidth, setPriceScaleWidth] = useState(0);
 
-  // Renko
+  // Тик пересчёта overlay при любом движении/зуме
+  const [overlayTick, setOverlayTick] = useState(0);
+
+  // Renko blocks — пересчитываются только при изменении данных
   const [renkoBlocks, setRenkoBlocks] = useState<RenkoBlock[]>([]);
 
   useEffect(() => { indicatorsRef.current = indicators; }, [indicators]);
@@ -59,24 +62,28 @@ export const ChartView: React.FC = () => {
     return () => ro.disconnect();
   }, []);
 
-  // ―― Видимый диапазон + ширина шкалы цен ――
+  // ―― Подписка на движения — обновляем tick, range, priceScale ――
   useEffect(() => {
     if (!chartRef.current) return;
     const ts = chartRef.current.timeScale();
-    const update = () => {
+
+    const onTimeChange = () => {
       const r = ts.getVisibleRange();
       if (r) setVisibleRange({ from: Number(r.from), to: Number(r.to) });
       try {
         const w = (chartRef.current as any).priceScale('right').width();
         if (typeof w === 'number' && w > 0) setPriceScaleWidth(w);
       } catch {}
+      // Форсируем перерисовку overlay
+      setOverlayTick(t => t + 1);
     };
-    update();
-    ts.subscribeVisibleTimeRangeChange(update);
-    ts.subscribeVisibleLogicalRangeChange(update);
+
+    onTimeChange();
+    ts.subscribeVisibleTimeRangeChange(onTimeChange);
+    ts.subscribeVisibleLogicalRangeChange(onTimeChange);
     return () => {
-      ts.unsubscribeVisibleTimeRangeChange(update);
-      ts.unsubscribeVisibleLogicalRangeChange(update);
+      ts.unsubscribeVisibleTimeRangeChange(onTimeChange);
+      ts.unsubscribeVisibleLogicalRangeChange(onTimeChange);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chartRef.current]);
@@ -279,19 +286,12 @@ export const ChartView: React.FC = () => {
     return () => timeScale.unsubscribeVisibleLogicalRangeChange(onRange);
   }, [exchange, symbol, timeframe, chartRef]);
 
-  // Функция конвертации price → Y через API lightweight-charts
-  const priceToY = useCallback((p: number): number | null => {
-    return candleSeriesRef.current?.priceToCoordinate(p) ?? null;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visibleRange]);
-
   const vpIndicator = indicators.find(i => i.type === 'volume_profile');
   const rkIndicator = indicators.find(i => i.type === 'renko');
 
   return (
     <div ref={containerRef} style={{ position: 'relative', width: '100%', height: '100%' }}>
 
-      {/* Renko overlay */}
       {rkIndicator && renkoBlocks.length > 0 && visibleRange && (
         <RenkoOverlay
           blocks={renkoBlocks}
@@ -303,11 +303,12 @@ export const ChartView: React.FC = () => {
           bullColor={rkIndicator.params.bullColor ?? '#26a69a'}
           bearColor={rkIndicator.params.bearColor ?? '#ef5350'}
           opacity={rkIndicator.params.opacity ?? 0.3}
-          priceToY={priceToY}
+          chart={chartRef.current}
+          series={candleSeriesRef.current}
+          tick={overlayTick}
         />
       )}
 
-      {/* Volume Profile overlay */}
       {vpIndicator && visibleRange && priceArea.bottom > priceArea.top && (
         <VolumeProfileOverlay
           candles={candlesDataRef.current}

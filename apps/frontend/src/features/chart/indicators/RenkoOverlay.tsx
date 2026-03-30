@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { RenkoBlock } from './renkoUtils';
+import { IChartApi, ISeriesApi, Time } from 'lightweight-charts';
 
 interface Props {
   blocks: RenkoBlock[];
@@ -7,11 +8,14 @@ interface Props {
   visibleTo: number;
   containerWidth: number;
   containerHeight: number;
-  rightOffset: number;   // ширина price scale справа
+  rightOffset: number;
   bullColor: string;
   bearColor: string;
   opacity: number;
-  priceToY: (p: number) => number | null;
+  chart: IChartApi | null;
+  series: ISeriesApi<'Candlestick'> | null;
+  // тик пересчёта при любом движении вида
+  tick: number;
 }
 
 export const RenkoOverlay: React.FC<Props> = ({
@@ -24,54 +28,77 @@ export const RenkoOverlay: React.FC<Props> = ({
   bullColor,
   bearColor,
   opacity,
-  priceToY,
+  chart,
+  series,
+  tick,
 }) => {
   const rects = useMemo(() => {
-    if (!visibleFrom || !visibleTo || visibleTo <= visibleFrom) return [];
+    if (!chart || !series || !visibleFrom || !visibleTo) return [];
 
-    // Пиксельная ширина области свечей (без price scale справа)
     const chartWidth = containerWidth - rightOffset;
     if (chartWidth <= 0) return [];
 
-    // Линейное отображение time → X (достаточно точное для overlay)
-    const timeRange = visibleTo - visibleFrom;
-    const timeToX = (t: number): number =>
-      ((t - visibleFrom) / timeRange) * chartWidth;
+    const ts = chart.timeScale();
 
-    // Фильтруем блоки, пересекающие видимый диапазон
-    const visible = blocks.filter(
-      b => b.timeEnd >= visibleFrom && b.timeStart <= visibleTo
-    );
+    // Вычисляем шаг одного бара в пикселях — нужен для экстраполяции за левый край
+    // Берём две ближайшие видимые точки и считаем шаг
+    let pxPerSec = 0;
+    const visibleBlocks = blocks.filter(b => b.timeEnd >= visibleFrom && b.timeStart <= visibleTo);
+
+    // Находим два блока, для которых timeToCoordinate работает
+    let refTime1 = 0, refX1 = 0, refTime2 = 0, refX2 = 0;
+    for (const b of visibleBlocks) {
+      const x1 = ts.timeToCoordinate(b.timeStart as Time);
+      const x2 = ts.timeToCoordinate(b.timeEnd as Time);
+      if (x1 !== null && refTime1 === 0) { refTime1 = b.timeStart; refX1 = x1; }
+      if (x2 !== null) { refTime2 = b.timeEnd; refX2 = x2; }
+    }
+    if (refTime1 !== refTime2 && refTime2 > refTime1) {
+      pxPerSec = (refX2 - refX1) / (refTime2 - refTime1);
+    }
+
+    // Помощник: получить X любого времени
+    const getX = (t: number): number => {
+      const coord = ts.timeToCoordinate(t as Time);
+      if (coord !== null) return coord;
+      // экстраполяция через знакомое опорное время
+      if (pxPerSec !== 0 && refTime1 !== 0) {
+        return refX1 + (t - refTime1) * pxPerSec;
+      }
+      return 0;
+    };
 
     const result: Array<{
-      key: number;
-      x: number; y: number; w: number; h: number;
-      color: string;
+      key: number; x: number; y: number; w: number; h: number; color: string;
     }> = [];
 
-    for (let i = 0; i < visible.length; i++) {
-      const b = visible[i];
+    for (let i = 0; i < visibleBlocks.length; i++) {
+      const b = visibleBlocks[i];
 
-      const xStart = Math.max(0, timeToX(b.timeStart));
-      const xEnd   = Math.min(chartWidth, timeToX(b.timeEnd));
-      const w = Math.max(1, xEnd - xStart);
+      const xStart = getX(b.timeStart);
+      const xEnd   = getX(b.timeEnd);
 
-      const yTop    = priceToY(b.priceTo);
-      const yBottom = priceToY(b.priceFrom);
+      // Обрезаем по границам области свечей
+      const x = Math.max(0, xStart);
+      const w = Math.max(1, Math.min(chartWidth, xEnd) - x);
+
+      const yTop    = series.priceToCoordinate(b.priceTo);
+      const yBottom = series.priceToCoordinate(b.priceFrom);
       if (yTop === null || yBottom === null) continue;
 
       const y = Math.min(yTop, yBottom);
       const h = Math.max(1, Math.abs(yBottom - yTop));
 
       result.push({
-        key: i,
-        x: xStart, y, w, h,
+        key: i, x, y, w, h,
         color: b.direction === 'up' ? bullColor : bearColor,
       });
     }
 
     return result;
-  }, [blocks, visibleFrom, visibleTo, containerWidth, rightOffset, priceToY, bullColor, bearColor]);
+  // tick в deps — форсируем пересчёт при любом движении
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blocks, tick, containerWidth, rightOffset, bullColor, bearColor, opacity]);
 
   if (!rects.length) return null;
 

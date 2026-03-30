@@ -1,4 +1,4 @@
- 
+
 services:
   backend:
     build:
@@ -14,11 +14,9 @@ services:
       GOOGLE_CLIENT_SECRET: change_me
       GOOGLE_CALLBACK_URL: http://localhost:3000/api/auth/google/callback
       FRONTEND_URL: http://localhost:5174
+      TINKOFF_TOKEN: ${TINKOFF_TOKEN:-}
     ports:
       - "3000:3000"
-    # depends_on:
-    #  db:
-    #    condition: service_healthy
     restart: unless-stopped
 
   frontend:
@@ -27,7 +25,6 @@ services:
       dockerfile: Dockerfile
     container_name: terminal_frontend
     environment:
-      # используется на этапе runtime только если вы читаете их через template (опц.)
       - VITE_API_URL=http://localhost:3000
       - VITE_WS_URL=http://localhost:3000
     ports:
@@ -35,4 +32,3 @@ services:
     depends_on:
       - backend
     restart: unless-stopped
-

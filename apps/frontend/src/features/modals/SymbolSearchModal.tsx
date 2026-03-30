@@ -11,7 +11,6 @@ interface Props {
   onClose: () => void;
 }
 
-// Цвета бейджа адаптированы под обе темы
 const EXCHANGE_META: Record<string, {
   label: string;
   dark:  { bg: string; color: string; border: string };
@@ -27,10 +26,15 @@ const EXCHANGE_META: Record<string, {
     dark:  { bg: '#0d2a1f', color: '#26a69a', border: '#1a4a3a' },
     light: { bg: '#e6f4f1', color: '#0f7a6e', border: '#b2dbd6' },
   },
+  tinkoff: {
+    label: 'T-INV',
+    dark:  { bg: '#2a1a00', color: '#ffaa00', border: '#4a3000' },
+    light: { bg: '#fff8e6', color: '#b36b00', border: '#ffd980' },
+  },
 };
 
 const getFallbackMeta = (exchange: string, isDark: boolean) => ({
-  label: exchange.toUpperCase(),
+  label: exchange.toUpperCase().slice(0, 6),
   ...(isDark
     ? { bg: '#2b2b43', color: '#aaa', border: '#3a3a55' }
     : { bg: '#f0f0f5', color: '#666', border: '#d0d0df' }),
@@ -162,7 +166,7 @@ export const SymbolSearchModal: React.FC<Props> = ({ onClose }) => {
             const badge = meta
               ? (isDark ? meta.dark : meta.light)
               : getFallbackMeta(r.exchange, isDark);
-            const label = meta?.label ?? r.exchange.toUpperCase();
+            const label = meta?.label ?? r.exchange.toUpperCase().slice(0, 6);
 
             return (
               <button
@@ -178,7 +182,6 @@ export const SymbolSearchModal: React.FC<Props> = ({ onClose }) => {
                 onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = hoverBg; }}
                 onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
               >
-                {/* Бейдж */}
                 <span style={{
                   fontSize: 10, fontWeight: 700,
                   letterSpacing: '0.04em',
@@ -191,7 +194,6 @@ export const SymbolSearchModal: React.FC<Props> = ({ onClose }) => {
                 }}>
                   {label}
                 </span>
-                {/* Текст */}
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: textMain, letterSpacing: '-0.01em' }}>
                     {r.symbol}

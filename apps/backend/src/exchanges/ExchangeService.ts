@@ -1,6 +1,7 @@
 import { ExchangeAdapter, SymbolResult } from './types';
 import { BybitAdapter } from './adapters/BybitAdapter';
 import { MoexAdapter } from './adapters/MoexAdapter';
+import { TinkoffAdapter } from './adapters/TinkoffAdapter';
 
 class ExchangeService {
   private adapters = new Map<string, ExchangeAdapter>();
@@ -8,6 +9,7 @@ class ExchangeService {
   constructor() {
     this.registerAdapter(new BybitAdapter());
     this.registerAdapter(new MoexAdapter());
+    this.registerAdapter(new TinkoffAdapter());
   }
 
   private registerAdapter(adapter: ExchangeAdapter) {

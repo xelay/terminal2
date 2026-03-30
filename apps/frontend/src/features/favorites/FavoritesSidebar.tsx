@@ -28,6 +28,9 @@ const EXCHANGE_SHORT: Record<string, string> = {
   bybit: 'BYBIT',
 };
 
+// Фиксированная ширина панели — не влияет на размер графика
+const PANEL_WIDTH = 130;
+
 interface Props {
   open: boolean;
   onToggle: () => void;
@@ -44,24 +47,62 @@ export const FavoritesSidebar: React.FC<Props> = ({ open, onToggle }) => {
   });
 
   const borderColor = isDark ? '#2b2b43' : '#e0e3eb';
-  const hoverBg    = isDark ? '#2b2b43' : '#f0f3fa';
-  const activeBg   = isDark ? '#2962FF22' : '#2962FF11';
+  const hoverBg     = isDark ? '#2b2b43' : '#f0f3fa';
+  const activeBg    = isDark ? '#2962FF22' : '#2962FF11';
+  const chevronBg   = isDark ? '#1a1e2e' : '#f0f2f8';
 
   return (
-    // Внешний flex-ряд: [панель][шеврон]
-    <div style={{ display: 'flex', flexDirection: 'row', flexShrink: 0, height: '100%' }}>
+    /*
+      В потоке flex остаётся только шеврон (14пх фикс) —
+      он всегда виден и не меняет ширину соседей.
+      Панель со списком absolute — выезжает поверх графика.
+    */
+    <div style={{ position: 'relative', flexShrink: 0, display: 'flex' }}>
 
-      {/* Панель со списком */}
+      {/* Шеврон — в потоке, 14пх, неизменный */}
+      <button
+        onClick={onToggle}
+        title={open ? 'Скрыть избранное' : 'Избранное'}
+        style={{
+          width: 14,
+          alignSelf: 'stretch',
+          background: chevronBg,
+          border: 'none',
+          borderRight: `1px solid ${borderColor}`,
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: 0,
+          color: isDark ? '#9598a1' : '#888',
+          zIndex: 11,
+          flexShrink: 0,
+        }}
+        onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = isDark ? '#2b2b43' : '#e2e5ef'; }}
+        onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = chevronBg; }}
+      >
+        {open ? <IconChevronLeft /> : <IconChevronRight />}
+      </button>
+
+      {/* Панель — absolute, выезжает поверх графика */}
       <div style={{
-        width: open ? 'auto' : 0,
-        minWidth: open ? 88 : 0,
-        maxWidth: open ? 160 : 0,
-        overflow: 'hidden',
-        transition: 'min-width 0.18s ease, max-width 0.18s ease',
+        position: 'absolute',
+        top: 0,
+        left: 14, // рядом с шевроном
+        width: PANEL_WIDTH,
+        height: '100%',
         background: colors.bg,
+        borderRight: `1px solid ${borderColor}`,
         display: 'flex',
         flexDirection: 'column',
-        borderRight: open ? `1px solid ${borderColor}` : 'none',
+        zIndex: 10,
+        overflow: 'hidden',
+        // Слайд левой части графика, правая шкала недвижима
+        transform: open ? 'translateX(0)' : `translateX(-${PANEL_WIDTH + 2}px)`,
+        transition: 'transform 0.18s ease',
+        boxShadow: open
+          ? (isDark ? '2px 0 8px rgba(0,0,0,0.3)' : '2px 0 8px rgba(0,0,0,0.08)')
+          : 'none',
       }}>
         {/* Заголовок */}
         <div style={{
@@ -71,11 +112,12 @@ export const FavoritesSidebar: React.FC<Props> = ({ open, onToggle }) => {
           color: isDark ? '#9598a1' : '#777',
           borderBottom: `1px solid ${borderColor}`,
           whiteSpace: 'nowrap', userSelect: 'none',
+          flexShrink: 0,
         }}>
           ★ Избранное
         </div>
 
-        {/* Список символов */}
+        {/* Список */}
         <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
           {sorted.length === 0 && (
             <div style={{ padding: '10px', fontSize: 11, color: isDark ? '#9598a1' : '#aaa', whiteSpace: 'nowrap' }}>
@@ -124,31 +166,6 @@ export const FavoritesSidebar: React.FC<Props> = ({ open, onToggle }) => {
           })}
         </div>
       </div>
-
-      {/* Шеврон — отдельный flex-элемент, не absolute */}
-      <button
-        onClick={onToggle}
-        title={open ? 'Скрыть избранное' : 'Избранное'}
-        style={{
-          width: 14,
-          flexShrink: 0,
-          alignSelf: 'stretch',
-          background: isDark ? '#1e1e2e' : '#f5f5fa',
-          border: 'none',
-          borderRight: `1px solid ${borderColor}`,
-          cursor: 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: 0,
-          color: isDark ? '#9598a1' : '#888',
-          transition: 'background 0.15s',
-        }}
-        onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = isDark ? '#2b2b43' : '#e8eaf0'; }}
-        onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = isDark ? '#1e1e2e' : '#f5f5fa'; }}
-      >
-        {open ? <IconChevronLeft /> : <IconChevronRight />}
-      </button>
     </div>
   );
 };

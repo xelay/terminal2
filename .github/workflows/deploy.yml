@@ -32,17 +32,14 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: 2233
           script: |
-            # Записываем .env
             mkdir -p ~/terminal2-deployment/apps/backend
             cat > ~/terminal2-deployment/apps/backend/.env << 'ENVEOF'
             ${{ secrets.ENV_FILE }}
             ENVEOF
 
-            # Сборка и запуск
             cd ~/terminal2-deployment
-            docker-compose -f infra/docker-compose.yml down
-            docker-compose -f infra/docker-compose.yml build --no-cache
-            docker-compose -f infra/docker-compose.yml up -d
+            docker compose -f infra/docker-compose.yml down
+            docker compose -f infra/docker-compose.yml build --no-cache
+            docker compose -f infra/docker-compose.yml up -d
 
-            # Очищаем папку после деплоя
             rm -rf ~/terminal2-deployment/*

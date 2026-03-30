@@ -8,7 +8,21 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Copy files to server via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "."
+          target: "~/terminal2-deployment"
+          rm: true  # автоматически очищает папку перед копированием
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -16,18 +30,17 @@ jobs:
           username: ${{ secrets.SSH_USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            cd ~/terminal2-deployment
-            git pull origin main
-            docker compose up -d --build --remove-orphans
-            docker image prune -f
-
-      - name: Upload .env file
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USERNAME }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: |
-            cat > ~/terminal2-deployment/apps/backend/.env << 'EOF'
+            # Записываем .env
+            mkdir -p ~/terminal2-deployment/apps/backend
+            cat > ~/terminal2-deployment/apps/backend/.env << 'ENVEOF'
             ${{ secrets.ENV_FILE }}
-            EOF
+            ENVEOF
+
+            # Сборка и запуск
+            cd ~/terminal2-deployment
+            docker-compose -f infra/docker-compose.yml down
+            docker-compose -f infra/docker-compose.yml build --no-cache
+            docker-compose -f infra/docker-compose.yml up -d
+
+            # Очищаем папку после деплоя
+            rm -rf ~/terminal2-deployment/*

@@ -44,7 +44,7 @@ jobs:
 
             cd ~/terminal2-deployment
             docker compose -f infra/docker-compose.yml down
-            docker compose -f infra/docker-compose.yml build --no-cache
+            docker compose -f infra/docker-compose.yml build
             docker compose -f infra/docker-compose.yml up -d
 
             rm -rf ~/terminal2-deployment/*

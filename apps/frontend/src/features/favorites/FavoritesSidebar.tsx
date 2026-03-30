@@ -3,18 +3,18 @@ import { useWorkspaceStore, FavoriteSymbol } from '../../store/workspace';
 import { CHART_THEMES } from '../chart/lwc/useLightweightChart';
 
 const IconChevronLeft = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+  <svg width="10" height="10" viewBox="0 0 24 24" fill="none"
     stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
     <polyline points="15 18 9 12 15 6" />
   </svg>
 );
 const IconChevronRight = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+  <svg width="10" height="10" viewBox="0 0 24 24" fill="none"
     stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
     <polyline points="9 18 15 12 9 6" />
   </svg>
 );
-const IconStar = ({ filled, size = 13 }: { filled: boolean; size?: number }) => (
+const IconStar = ({ filled, size = 11 }: { filled: boolean; size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 24 24"
     fill={filled ? '#f5c518' : 'none'}
     stroke={filled ? '#f5c518' : '#9598a1'}
@@ -38,7 +38,6 @@ export const FavoritesSidebar: React.FC<Props> = ({ open, onToggle }) => {
   const isDark = theme === 'dark';
   const colors = CHART_THEMES[theme];
 
-  // Сортируем по бирже, затем по символу А-Я
   const sorted = [...favorites].sort((a, b) => {
     const exCmp = a.exchange.localeCompare(b.exchange);
     return exCmp !== 0 ? exCmp : a.symbol.localeCompare(b.symbol);
@@ -49,48 +48,37 @@ export const FavoritesSidebar: React.FC<Props> = ({ open, onToggle }) => {
   const activeBg   = isDark ? '#2962FF22' : '#2962FF11';
 
   return (
-    <div style={{
-      display: 'flex',
-      flexDirection: 'row',
-      flexShrink: 0,
-      height: '100%',
-      position: 'relative',
-    }}>
-      {/* Сам сайдбар */}
+    // Внешний flex-ряд: [панель][шеврон]
+    <div style={{ display: 'flex', flexDirection: 'row', flexShrink: 0, height: '100%' }}>
+
+      {/* Панель со списком */}
       <div style={{
         width: open ? 'auto' : 0,
-        minWidth: open ? 80 : 0,
-        maxWidth: open ? 180 : 0,
+        minWidth: open ? 88 : 0,
+        maxWidth: open ? 160 : 0,
         overflow: 'hidden',
-        borderRight: open ? `1px solid ${borderColor}` : 'none',
         transition: 'min-width 0.18s ease, max-width 0.18s ease',
         background: colors.bg,
         display: 'flex',
         flexDirection: 'column',
+        borderRight: open ? `1px solid ${borderColor}` : 'none',
       }}>
         {/* Заголовок */}
         <div style={{
-          padding: '8px 10px 6px',
-          fontSize: 10,
-          fontWeight: 700,
-          letterSpacing: '0.08em',
-          textTransform: 'uppercase',
-          color: isDark ? '#9598a1' : '#666',
+          padding: '7px 10px 6px',
+          fontSize: 10, fontWeight: 700,
+          letterSpacing: '0.07em', textTransform: 'uppercase',
+          color: isDark ? '#9598a1' : '#777',
           borderBottom: `1px solid ${borderColor}`,
-          whiteSpace: 'nowrap',
-          userSelect: 'none',
+          whiteSpace: 'nowrap', userSelect: 'none',
         }}>
           ★ Избранное
         </div>
 
-        {/* Список */}
+        {/* Список символов */}
         <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
           {sorted.length === 0 && (
-            <div style={{
-              padding: '12px 10px', fontSize: 11,
-              color: isDark ? '#9598a1' : '#aaa',
-              whiteSpace: 'nowrap',
-            }}>
+            <div style={{ padding: '10px', fontSize: 11, color: isDark ? '#9598a1' : '#aaa', whiteSpace: 'nowrap' }}>
               Пусто
             </div>
           )}
@@ -102,11 +90,8 @@ export const FavoritesSidebar: React.FC<Props> = ({ open, onToggle }) => {
                 onClick={() => setSymbol(fav.exchange, fav.symbol)}
                 title={`${EXCHANGE_SHORT[fav.exchange] ?? fav.exchange.toUpperCase()}: ${fav.symbol}`}
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 4,
-                  padding: '5px 8px 5px 10px',
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4,
+                  padding: '5px 6px 5px 10px',
                   cursor: 'pointer',
                   background: isActive ? activeBg : 'transparent',
                   borderLeft: isActive ? '2px solid #2962FF' : '2px solid transparent',
@@ -116,7 +101,7 @@ export const FavoritesSidebar: React.FC<Props> = ({ open, onToggle }) => {
                 onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLDivElement).style.background = hoverBg; }}
                 onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
               >
-                <div style={{ overflow: 'hidden' }}>
+                <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 12, fontWeight: 600, color: isActive ? '#2962FF' : colors.text, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {fav.symbol}
                   </div>
@@ -124,14 +109,12 @@ export const FavoritesSidebar: React.FC<Props> = ({ open, onToggle }) => {
                     {EXCHANGE_SHORT[fav.exchange] ?? fav.exchange.toUpperCase()}
                   </div>
                 </div>
-                {/* Кнопка удаления */}
                 <button
                   onClick={e => { e.stopPropagation(); toggleFavorite(fav.exchange, fav.symbol); }}
-                  title="Убрать из избранного"
+                  title="Убрать"
                   style={{
                     background: 'none', border: 'none', cursor: 'pointer',
-                    padding: 2, display: 'flex', alignItems: 'center', flexShrink: 0,
-                    opacity: 0.6,
+                    padding: 2, display: 'flex', alignItems: 'center', flexShrink: 0, opacity: 0.55,
                   }}
                 >
                   <IconStar filled size={11} />
@@ -142,28 +125,27 @@ export const FavoritesSidebar: React.FC<Props> = ({ open, onToggle }) => {
         </div>
       </div>
 
-      {/* Кнопка скрыть/выдвинуть */}
+      {/* Шеврон — отдельный flex-элемент, не absolute */}
       <button
         onClick={onToggle}
-        title={open ? 'Скрыть' : 'Избранное'}
+        title={open ? 'Скрыть избранное' : 'Избранное'}
         style={{
-          position: 'absolute',
-          right: -12,
-          top: '50%',
-          transform: 'translateY(-50%)',
-          zIndex: 10,
           width: 14,
-          height: 32,
-          background: isDark ? '#2b2b43' : '#e0e3eb',
-          border: `1px solid ${borderColor}`,
-          borderRadius: '0 4px 4px 0',
+          flexShrink: 0,
+          alignSelf: 'stretch',
+          background: isDark ? '#1e1e2e' : '#f5f5fa',
+          border: 'none',
+          borderRight: `1px solid ${borderColor}`,
           cursor: 'pointer',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           padding: 0,
-          color: isDark ? '#9598a1' : '#666',
+          color: isDark ? '#9598a1' : '#888',
+          transition: 'background 0.15s',
         }}
+        onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = isDark ? '#2b2b43' : '#e8eaf0'; }}
+        onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = isDark ? '#1e1e2e' : '#f5f5fa'; }}
       >
         {open ? <IconChevronLeft /> : <IconChevronRight />}
       </button>

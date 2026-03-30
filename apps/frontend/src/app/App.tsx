@@ -123,12 +123,12 @@ export const App: React.FC = () => {
         background: colors.bg, color: colors.text,
         transition: 'background 0.2s, color 0.2s',
       }}>
+        {/* ===== Хедер ===== */}
         <header style={{
           height: '50px',
           borderBottom: `1px solid ${isDark ? '#2b2b43' : '#e0e3eb'}`,
           display: 'flex', alignItems: 'center', padding: '0 16px', gap: '8px', flexShrink: 0,
         }}>
-          {/* Пикер символа + звездочка */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <button onClick={() => setIsSearchOpen(true)} style={secondaryBtnStyle}>
               {exchange.toUpperCase()} : {symbol}
@@ -138,14 +138,12 @@ export const App: React.FC = () => {
               title={starred ? 'Удалить из избранного' : 'Добавить в избранное'}
               style={{
                 background: 'none', border: 'none', cursor: 'pointer',
-                padding: '4px 6px', display: 'flex', alignItems: 'center',
-                borderRadius: 4,
+                padding: '4px 6px', display: 'flex', alignItems: 'center', borderRadius: 4,
               }}
             >
               <IconStar filled={starred} />
             </button>
           </div>
-
           <div style={{ display: 'flex', gap: '2px' }}>
             {TIMEFRAMES.map(tf => (
               <button key={tf} onClick={() => setTimeframe(tf)} style={{
@@ -179,8 +177,17 @@ export const App: React.FC = () => {
           </div>
         </header>
 
+        {/* ===== Основной контент ===== */}
+        {/*
+          Порядок слева направо:
+          [Избранное (панель + шеврон)] [Инструменты] [График]
+        */}
         <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-          {/* Тулбар рисования */}
+
+          {/* 1. Сайдбар избранного */}
+          <FavoritesSidebar open={favOpen} onToggle={() => setFavOpen(v => !v)} />
+
+          {/* 2. Тулбар рисования */}
           <aside style={{
             width: '50px',
             borderRight: `1px solid ${isDark ? '#2b2b43' : '#e0e3eb'}`,
@@ -195,9 +202,7 @@ export const App: React.FC = () => {
             </button>
           </aside>
 
-          {/* Сайдбар избранного */}
-          <FavoritesSidebar open={favOpen} onToggle={() => setFavOpen(v => !v)} />
-
+          {/* 3. График */}
           <main style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
             <ChartView />
             <CanvasOverlay
@@ -208,11 +213,7 @@ export const App: React.FC = () => {
           </main>
         </div>
 
-        {isIndicatorsOpen && (
-          <IndicatorsModal
-            onClose={() => setIsIndicatorsOpen(false)}
-          />
-        )}
+        {isIndicatorsOpen && <IndicatorsModal onClose={() => setIsIndicatorsOpen(false)} />}
         {isSearchOpen && <SymbolSearchModal onClose={() => setIsSearchOpen(false)} />}
       </div>
     </ChartRefsContext.Provider>

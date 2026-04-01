@@ -2,11 +2,11 @@ export type PriceSource = 'close' | 'highlow';
 
 export interface RenkoBlock {
   direction: 'up' | 'down';
-  priceFrom: number;  // нижняя граница блока
-  priceTo: number;    // верхняя граница блока
-  timeStart: number;  // unix-time начала блока
-  timeEnd: number;    // unix-time конца блока (включительно)
-  isPending?: boolean; // true = текущий незакрытый блок
+  priceFrom: number;
+  priceTo: number;
+  timeStart: number;
+  timeEnd: number;
+  isPending?: boolean;
 }
 
 type Candle = {
@@ -18,7 +18,23 @@ type Candle = {
   volume: number;
 };
 
-/** Считаем ATR-50 по всем свечам (или по последним 50 если их меньше) */
+// ─────────────────────────────────────────────────────────────────────────────
+// DEBUG LOGGING
+// Установи window.__RENKO_DEBUG__ = true в консоли браузера для включения логов.
+// Пример: window.__RENKO_DEBUG__ = true
+// ─────────────────────────────────────────────────────────────────────────────
+declare global {
+  interface Window { __RENKO_DEBUG__?: boolean; }
+}
+
+const RENKO_DEBUG = () =>
+  typeof window !== 'undefined' && !!window.__RENKO_DEBUG__;
+
+function dbg(...args: unknown[]) {
+  if (RENKO_DEBUG()) console.log('[Renko]', ...args);
+}
+
+/** Считаем ATR-50 по всем свечам */
 export function calcATR(candles: Candle[], period = 50): number {
   if (candles.length < 2) return 0;
   const slice = candles.slice(-Math.max(period + 1, candles.length));
@@ -38,7 +54,6 @@ export function calcATR(candles: Candle[], period = 50): number {
   return count > 0 ? atrSum / count : 0;
 }
 
-/** Умное округление под масштаб цены */
 export function smartRound(value: number, refPrice: number): number {
   if (refPrice > 100) return Math.round(value);
   if (refPrice > 10)  return Math.round(value * 10) / 10;
@@ -47,18 +62,19 @@ export function smartRound(value: number, refPrice: number): number {
 
 /**
  * Основной алгоритм построения блоков Renko.
- *
- * Фиксы:
- * 1. Закрытый блок не растягивается до конца графика — timeEnd фиксируется на свече закрытия.
- * 2. Добавляется полупрозрачный «пендинг»-блок — показывает текущее движение цены до следующего уровня.
- * 3. При source='highlow': сначала проверяем только одно направление (по последнему направлению движения).
+ * Логирование включается через: window.__RENKO_DEBUG__ = true
  */
 export function buildRenkoBlocks(
   candles: Candle[],
   blockSize: number,
   source: PriceSource,
 ): RenkoBlock[] {
-  if (candles.length === 0 || blockSize <= 0) return [];
+  if (candles.length === 0 || blockSize <= 0) {
+    dbg('buildRenkoBlocks: пустые свечи или blockSize <= 0, выход');
+    return [];
+  }
+
+  const debug = RENKO_DEBUG();
 
   const blocks: RenkoBlock[] = [];
 
@@ -67,18 +83,32 @@ export function buildRenkoBlocks(
     ? firstCandle.close
     : (firstCandle.high + firstCandle.low) / 2;
 
-  // Выравниваем по сетке
+  const startLevelRaw = currentLevel;
   currentLevel = Math.floor(currentLevel / blockSize) * blockSize;
 
-  let blockStartTime = firstCandle.time;
+  dbg(
+    `
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🧱 buildRenkoBlocks START
+   source      : ${source}
+   blockSize   : ${blockSize}
+   candles     : ${candles.length} (от ${new Date(candles[0].time * 1000).toLocaleDateString()} до ${new Date(candles[candles.length - 1].time * 1000).toLocaleDateString()})
+   startPrice  : ${startLevelRaw} → выровнен по сетке → ${currentLevel}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
+  );
 
-  // Текущее направление (для highlow режима: помним последнее движение чтобы не проверять оба направления внутри одной свечи)
+  let blockStartTime = firstCandle.time;
   let lastDirection: 'up' | 'down' | null = null;
+  let candleIdx = 0;
 
   for (const candle of candles) {
+    candleIdx++;
+
     if (source === 'close') {
       const price = candle.close;
-      // Вверх
+      const prevLevel = currentLevel;
+      let moved = false;
+
       while (price >= currentLevel + blockSize) {
         blocks.push({
           direction: 'up',
@@ -87,11 +117,20 @@ export function buildRenkoBlocks(
           timeStart: blockStartTime,
           timeEnd:   candle.time,
         });
+        if (debug) {
+          console.log(
+            `[Renko] 🟢 UP   блок #${blocks.length}`,
+            `${currentLevel} → ${currentLevel + blockSize}`,
+            `| свеча #${candleIdx} close=${price}`,
+            `| дата: ${new Date(candle.time * 1000).toLocaleDateString()}`,
+          );
+        }
         currentLevel += blockSize;
         blockStartTime = candle.time;
         lastDirection = 'up';
+        moved = true;
       }
-      // Вниз
+
       while (price <= currentLevel - blockSize) {
         blocks.push({
           direction: 'down',
@@ -100,14 +139,33 @@ export function buildRenkoBlocks(
           timeStart: blockStartTime,
           timeEnd:   candle.time,
         });
+        if (debug) {
+          console.log(
+            `[Renko] 🔴 DOWN блок #${blocks.length}`,
+            `${currentLevel - blockSize} → ${currentLevel}`,
+            `| свеча #${candleIdx} close=${price}`,
+            `| дата: ${new Date(candle.time * 1000).toLocaleDateString()}`,
+          );
+        }
         currentLevel -= blockSize;
         blockStartTime = candle.time;
         lastDirection = 'down';
+        moved = true;
       }
+
+      if (!moved && debug && candleIdx <= 10) {
+        console.log(
+          `[Renko] ⏳ нет блока свеча #${candleIdx}`,
+          `close=${price} | level=${currentLevel}`,
+          `| до UP: +${(currentLevel + blockSize - price).toFixed(2)}`,
+          `| до DOWN: -${(price - (currentLevel - blockSize)).toFixed(2)}`,
+        );
+      }
+
     } else {
-      // highlow: сначала проверяем только одно направление чтобы избежать конфликта high/low в одной свече
-      // Приоритет up: если последнее движение было up или неустановлено
+      // highlow
       if (lastDirection !== 'down' && candle.high >= currentLevel + blockSize) {
+        let moved = false;
         while (candle.high >= currentLevel + blockSize) {
           blocks.push({
             direction: 'up',
@@ -116,9 +174,28 @@ export function buildRenkoBlocks(
             timeStart: blockStartTime,
             timeEnd:   candle.time,
           });
+          if (debug) {
+            console.log(
+              `[Renko] 🟢 UP(hl)  блок #${blocks.length}`,
+              `${currentLevel} → ${currentLevel + blockSize}`,
+              `| high=${candle.high}`,
+              `| дата: ${new Date(candle.time * 1000).toLocaleDateString()}`,
+            );
+          }
           currentLevel += blockSize;
           blockStartTime = candle.time;
           lastDirection = 'up';
+          moved = true;
+        }
+        // Проверяем: если в этой же свече low пробивает вниз — логируем конфликт
+        if (debug && candle.low <= currentLevel - blockSize) {
+          console.warn(
+            `[Renko] ⚠️ КОНФЛИКТ свеча #${candleIdx}`,
+            `high=${candle.high} пробил вверх, но low=${candle.low} пробивает вниз!`,
+            `currentLevel=${currentLevel}`,
+            `| дата: ${new Date(candle.time * 1000).toLocaleDateString()}`,
+            '→ down-проверка пропускается (приоритет up)',
+          );
         }
       } else if (candle.low <= currentLevel - blockSize) {
         while (candle.low <= currentLevel - blockSize) {
@@ -129,6 +206,14 @@ export function buildRenkoBlocks(
             timeStart: blockStartTime,
             timeEnd:   candle.time,
           });
+          if (debug) {
+            console.log(
+              `[Renko] 🔴 DOWN(hl) блок #${blocks.length}`,
+              `${currentLevel - blockSize} → ${currentLevel}`,
+              `| low=${candle.low}`,
+              `| дата: ${new Date(candle.time * 1000).toLocaleDateString()}`,
+            );
+          }
           currentLevel -= blockSize;
           blockStartTime = candle.time;
           lastDirection = 'down';
@@ -137,14 +222,15 @@ export function buildRenkoBlocks(
     }
   }
 
-  // Пендинг-блок: показывает текущую позицию цены относительно следующего уровня
+  // ─── Pending-блок ───────────────────────────────────────────────────────────
+  let pendingBlock: RenkoBlock | null = null;
+
   if (candles.length > 0) {
     const lastCandle = candles[candles.length - 1];
     const lastPrice = source === 'close'
       ? lastCandle.close
       : (lastCandle.high + lastCandle.low) / 2;
 
-    // Определяем направление пендинг-блока по позиции цены
     const pendingDir: 'up' | 'down' = lastPrice >= currentLevel ? 'up' : 'down';
 
     let pendingFrom: number;
@@ -152,26 +238,90 @@ export function buildRenkoBlocks(
 
     if (pendingDir === 'up') {
       pendingFrom = currentLevel;
-      // Тянем до текущей цены, но не выше следующего уровня
-      pendingTo = Math.min(lastPrice, currentLevel + blockSize);
+      pendingTo   = Math.min(lastPrice, currentLevel + blockSize);
     } else {
-      // Цена ниже currentLevel — блок смотрит вниз
       pendingFrom = Math.max(lastPrice, currentLevel - blockSize);
       pendingTo   = currentLevel;
     }
 
-    // Не добавляем пендинг если он пустой (pending == 0 высоты)
     if (Math.abs(pendingTo - pendingFrom) > 0.001) {
-      blocks.push({
+      pendingBlock = {
         direction: pendingDir,
         priceFrom: pendingFrom,
         priceTo:   pendingTo,
         timeStart: blockStartTime,
         timeEnd:   lastCandle.time,
         isPending: true,
-      });
+      };
+      blocks.push(pendingBlock);
     }
   }
+
+  // ─── Итоговый дамп ──────────────────────────────────────────────────────────
+  if (debug) {
+    console.groupCollapsed(`[Renko] 📋 ИТОГ: ${blocks.length} блоков (включая pending)`);
+    console.log('blockSize:', blockSize, '| source:', source, '| finalLevel:', currentLevel);
+    console.log('Pending-блок:', pendingBlock
+      ? `${pendingBlock.direction.toUpperCase()} ${pendingBlock.priceFrom} → ${pendingBlock.priceTo}`
+      : 'нет');
+    console.log('');
+    console.log('Последние 20 блоков:');
+    const tail = blocks.slice(-20);
+    console.table(
+      tail.map((b, i) => ({
+        '№': blocks.length - tail.length + i + 1,
+        dir: b.direction,
+        from: b.priceFrom,
+        to: b.priceTo,
+        timeStart: new Date(b.timeStart * 1000).toLocaleDateString(),
+        timeEnd: new Date(b.timeEnd * 1000).toLocaleDateString(),
+        pending: b.isPending ? '✓' : '',
+      }))
+    );
+
+    // Проверка: ищем блоки с одинаковым диапазоном цен (потенциальные дубли)
+    const seen = new Map<string, number>();
+    const duplicates: unknown[] = [];
+    for (let i = 0; i < blocks.length; i++) {
+      const key = `${blocks[i].priceFrom}-${blocks[i].priceTo}`;
+      if (seen.has(key)) {
+        duplicates.push({
+          '№': i + 1,
+          dir: blocks[i].direction,
+          range: key,
+          timeStart: new Date(blocks[i].timeStart * 1000).toLocaleDateString(),
+          timeEnd: new Date(blocks[i].timeEnd * 1000).toLocaleDateString(),
+          'дубль блока №': seen.get(key),
+        });
+      } else {
+        seen.set(key, i + 1);
+      }
+    }
+    if (duplicates.length > 0) {
+      console.warn(`[Renko] ⚠️ Найдено ${duplicates.length} блоков с повторяющимися ценовыми диапазонами (возможные дубли):`);
+      console.table(duplicates);
+    } else {
+      console.log('[Renko] ✅ Дублей ценовых диапазонов не найдено');
+    }
+
+    // Проверка: ищем блоки где timeEnd < timeStart
+    const badTime = blocks.filter(b => b.timeEnd < b.timeStart);
+    if (badTime.length > 0) {
+      console.warn('[Renko] ⚠️ Блоки с timeEnd < timeStart:', badTime.length);
+      console.table(badTime);
+    }
+
+    // Проверка: ищем смену направления (разворот)
+    let reversals = 0;
+    for (let i = 1; i < blocks.length; i++) {
+      if (!blocks[i].isPending && blocks[i].direction !== blocks[i - 1].direction) reversals++;
+    }
+    console.log(`[Renko] 🔄 Разворотов направления: ${reversals}`);
+
+    console.groupEnd();
+  }
+
+  dbg(`buildRenkoBlocks END: ${blocks.length} блоков, finalLevel=${currentLevel}`);
 
   return blocks;
 }

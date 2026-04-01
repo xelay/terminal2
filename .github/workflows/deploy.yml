@@ -26,34 +26,38 @@ jobs:
 
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          ENV_FILE_CONTENT: ${{ secrets.ENV_FILE }}
+          TINKOFF_TOKEN: ${{ secrets.TINKOFF_TOKEN }}
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: 2233
+          envs: ENV_FILE_CONTENT,TINKOFF_TOKEN
           script: |
             set -e
 
-            # --- Отключаем BuildKit: он лезет в auth.docker.io при каждом build ---
             export DOCKER_BUILDKIT=0
             export COMPOSE_DOCKER_CLI_BUILD=0
 
-            # --- Pre-pull базовых образов через классический docker pull ---
-            # (он использует локальный кэш и не падает при flaky сети)
             docker pull node:20-alpine  || true
             docker pull nginx:1.27-alpine || true
 
-            # --- Секреты ---
             mkdir -p ~/terminal2-deployment/apps/backend
-            cat > ~/terminal2-deployment/apps/backend/.env << 'ENVEOF'
-            ${{ secrets.ENV_FILE }}
-            ENVEOF
-            echo "TINKOFF_TOKEN=${{ secrets.TINKOFF_TOKEN }}" >> ~/terminal2-deployment/apps/backend/.env
+            mkdir -p ~/terminal2-deployment/apps/frontend
 
-            echo "VITE_API_URL=https://trading.kalakala.ru" > ~/terminal2-deployment/apps/frontend/.env
-            echo "VITE_WS_URL=https://trading.kalakala.ru" >> ~/terminal2-deployment/apps/frontend/.env
+            # Пишем .env без heredoc — переменные уже в окружении через envs:
+            printf '%s\n' "$ENV_FILE_CONTENT" > ~/terminal2-deployment/apps/backend/.env
+            printf 'TINKOFF_TOKEN=%s\n' "$TINKOFF_TOKEN" >> ~/terminal2-deployment/apps/backend/.env
 
-            # --- Сборка и запуск ---
+            # Проверка что токен записался (длина, без значения)
+            echo "[deploy] TINKOFF_TOKEN length: ${#TINKOFF_TOKEN}"
+            echo "[deploy] .env lines: $(wc -l < ~/terminal2-deployment/apps/backend/.env)"
+
+            printf 'VITE_API_URL=https://trading.kalakala.ru\n' > ~/terminal2-deployment/apps/frontend/.env
+            printf 'VITE_WS_URL=https://trading.kalakala.ru\n' >> ~/terminal2-deployment/apps/frontend/.env
+
             cd ~/terminal2-deployment
             docker compose -f infra/docker-compose.yml down
             docker compose -f infra/docker-compose.yml build

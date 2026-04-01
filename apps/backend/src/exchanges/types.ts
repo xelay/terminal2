@@ -17,19 +17,9 @@ export interface SymbolResult {
 
 export interface ExchangeAdapter {
   id: string;
-
-  getHistoricalCandles(
-    symbol: string,
-    timeframe: Timeframe,
-    fromTime?: number,
-    limit?: number,
-  ): Promise<Candle[]>;
-
-  subscribeRealtime(
-    symbol: string,
-    timeframe: Timeframe,
-    onCandleUpdate: (candle: Candle) => void,
-  ): () => void;
-
+  // fromTime: первоначальная загрузка — unix ts начала диапазона
+  // isPagination=true: fromTime = upper bound (вернуть свечи ДО этого момента)
+  getHistoricalCandles(symbol: string, timeframe: Timeframe, fromTime?: number, limit?: number, isPagination?: boolean): Promise<Candle[]>;
+  subscribeRealtime(symbol: string, timeframe: Timeframe, onCandleUpdate: (candle: Candle) => void): () => void;
   searchSymbols(query: string): Promise<SymbolResult[]>;
 }

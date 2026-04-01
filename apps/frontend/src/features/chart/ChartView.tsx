@@ -119,14 +119,10 @@ export const ChartView: React.FC = () => {
     const newMap: Record<string, RenkoBlock[]> = {};
 
     for (const ind of rkInds) {
-      // Читаем размер для текущего символа из словаря
       const blockSizes: Record<string, number> = ind.params.blockSizes ?? {};
       const currentSymbol = useWorkspaceStore.getState().symbol;
       const blockSize = blockSizes[currentSymbol];
-
-      // Если для этого символа размер не задан — пропускаем
       if (!blockSize || blockSize <= 0) continue;
-
       newMap[ind.id] = buildRenkoBlocks(candles, blockSize, ind.params.source ?? 'close');
     }
     setRenkoBlocksMap(newMap);
@@ -250,7 +246,6 @@ export const ChartView: React.FC = () => {
 
   useEffect(() => { syncVolume(); syncSMASeries(); rebuildRenko(); }, [indicators]);
 
-  // Пересчитываем Renko при смене символа — старые блоки должны сброситься
   useEffect(() => { setRenkoBlocksMap({}); }, [symbol]);
 
   useEffect(() => {
@@ -267,14 +262,16 @@ export const ChartView: React.FC = () => {
       isFetchingHistory.current = true;
       try {
         const earliestTime = candlesDataRef.current[0].time;
+        // Передаём верхнюю границу (без включения) — бэкенд вернёт свечи ДО этого момента
         const res = await fetch(
-          `${import.meta.env.VITE_API_URL}/api/market/history?exchange=${exchange}&symbol=${encodeURIComponent(symbol)}&tf=${timeframe}&limit=500&from=${earliestTime}`,
+          `${import.meta.env.VITE_API_URL}/api/market/history?exchange=${exchange}&symbol=${encodeURIComponent(symbol)}&tf=${timeframe}&limit=500&before=${earliestTime}`,
         );
         const { candles: old } = await res.json();
         if (!old || old.length === 0) {
           noMoreHistory.current = true;
           return;
         }
+        // Бэкенд уже фильтрует по time < earliestTime, но перестраховка не помешает
         const strictOld = old.filter((c: Candle) => c.time < earliestTime);
         if (strictOld.length > 0) {
           const merged = [...strictOld, ...candlesDataRef.current]
@@ -303,7 +300,6 @@ export const ChartView: React.FC = () => {
   return (
     <div ref={containerRef} style={{ position: 'relative', width: '100%', height: '100%' }}>
       {rkIndicators.map(ind => {
-        // Показываем только если для текущего символа есть размер и блоки посчитаны
         const blockSizes: Record<string, number> = ind.params.blockSizes ?? {};
         if (!blockSizes[symbol] || !renkoBlocksMap[ind.id]?.length || !visibleRange) return null;
         return (

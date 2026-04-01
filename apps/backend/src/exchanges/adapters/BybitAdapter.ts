@@ -1,16 +1,19 @@
 import ccxt, { pro } from 'ccxt';
 import { ExchangeAdapter, Candle, Timeframe, SymbolResult } from '../types';
 
+const TF_SECONDS: Record<Timeframe, number> = {
+  '1m': 60, '5m': 300, '15m': 900,
+  '1h': 3600, '4h': 14400, '1d': 86400,
+  '1w': 604800, '1M': 2592000,
+};
+
 export class BybitAdapter implements ExchangeAdapter {
   public id = 'bybit';
   private client: pro.bybit;
   private activeSubscriptions = new Map<string, boolean>();
 
-  // loadMarkets вызывается ОДИН РАЗ — результат кэшируется навсегда
   private marketsPromise: Promise<void> | null = null;
   private marketsLoaded = false;
-
-  // throttle логов — не чаще 1 раза в 60 сек на символ
   private lastErrorLog = new Map<string, number>();
 
   private tfMap: Record<Timeframe, string> = {
@@ -21,7 +24,6 @@ export class BybitAdapter implements ExchangeAdapter {
 
   constructor() {
     this.client = new pro.bybit({ enableRateLimit: true, newUpdates: true });
-    // Грузим markets сразу при старте — не ждём первого запроса
     this.ensureMarkets();
   }
 
@@ -32,7 +34,6 @@ export class BybitAdapter implements ExchangeAdapter {
       .then(() => { this.marketsLoaded = true; })
       .catch((e) => {
         console.warn('[Bybit] loadMarkets failed, will retry on next search:', e.message);
-        // Сбрасываем промис чтобы следующий вызов попробовал снова
         this.marketsPromise = null;
       });
     return this.marketsPromise;
@@ -47,7 +48,28 @@ export class BybitAdapter implements ExchangeAdapter {
     }
   }
 
-  async getHistoricalCandles(symbol: string, timeframe: Timeframe, fromTime?: number, limit = 500): Promise<Candle[]> {
+  async getHistoricalCandles(
+    symbol: string,
+    timeframe: Timeframe,
+    fromTime?: number,
+    limit = 500,
+    isPagination = false,
+  ): Promise<Candle[]> {
+    if (isPagination && fromTime !== undefined) {
+      // fromTime = upper bound (верхняя граница, не включительно)
+      // Вычисляем since = upper_bound - limit * tf_seconds
+      const tfSec  = TF_SECONDS[timeframe];
+      const since  = (fromTime - limit * tfSec) * 1000; // ccxt ждёт ms
+      const ohlcv  = await this.client.fetchOHLCV(symbol, this.tfMap[timeframe], since, limit);
+      return ohlcv
+        .filter((c: any) => Math.floor((c[0] as number) / 1000) < fromTime)
+        .map((c: any) => ({
+          time: Math.floor((c[0] as number) / 1000),
+          open: c[1], high: c[2], low: c[3], close: c[4], volume: c[5],
+        }));
+    }
+
+    // Обычная первоначальная загрузка
     const since = fromTime ? fromTime * 1000 : undefined;
     const ohlcv = await this.client.fetchOHLCV(symbol, this.tfMap[timeframe], since, limit);
     return ohlcv.map((c: any) => ({
@@ -84,12 +106,9 @@ export class BybitAdapter implements ExchangeAdapter {
   }
 
   async searchSymbols(query: string): Promise<SymbolResult[]> {
-    // Ждём загрузки markets (если ещё не загружены)
     await this.ensureMarkets();
-
     const markets = this.client.markets;
     if (!markets) return [];
-
     const upperQuery = query.toUpperCase();
     return Object.entries(markets)
       .filter(([sym]) => sym.includes(upperQuery))

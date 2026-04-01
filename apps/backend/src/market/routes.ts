@@ -12,12 +12,10 @@ marketRouter.get('/search', async (req, res) => {
   }
   try {
     if (exchange) {
-      // Обратная совместимость: по одной бирже
       const adapter = exchangeService.getAdapter(exchange as string);
       const symbols = await adapter.searchSymbols(query as string);
       res.json({ symbols });
     } else {
-      // Параллельный поиск по всем
       const symbols = await exchangeService.searchAll(query as string);
       res.json({ symbols });
     }
@@ -27,8 +25,10 @@ marketRouter.get('/search', async (req, res) => {
 });
 
 // Исторические свечи
+// from   = unix timestamp, начало диапазона (первоначальная загрузка)
+// before = unix timestamp, верхняя граница — вернуть limit свечей ДО этого момента (пагинация)
 marketRouter.get('/history', async (req, res) => {
-  const { exchange, symbol, tf, from, limit } = req.query;
+  const { exchange, symbol, tf, from, before, limit } = req.query;
 
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
   res.set('Pragma', 'no-cache');
@@ -36,12 +36,27 @@ marketRouter.get('/history', async (req, res) => {
 
   try {
     const adapter = exchangeService.getAdapter(exchange as string);
-    const candles = await adapter.getHistoricalCandles(
-      symbol as string,
-      tf as any,
-      from ? Number(from) : undefined,
-      limit ? Number(limit) : 500,
-    );
+    const lim = limit ? Number(limit) : 500;
+
+    let candles;
+    if (before) {
+      // Пагинация назад: адаптер должен вернуть свечи ДО before
+      candles = await adapter.getHistoricalCandles(
+        symbol as string,
+        tf as any,
+        Number(before),
+        lim,
+        true, // isPagination flag
+      );
+    } else {
+      // Первоначальная загрузка: последние limit свечей
+      candles = await adapter.getHistoricalCandles(
+        symbol as string,
+        tf as any,
+        from ? Number(from) : undefined,
+        lim,
+      );
+    }
     res.json({ candles });
   } catch (e: any) {
     res.status(400).json({ error: e.message });

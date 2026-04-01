@@ -3,7 +3,6 @@ import { ExchangeAdapter, Candle, Timeframe, SymbolResult } from '../types';
 
 const BASE = 'https://invest-public-api.tinkoff.ru/rest';
 
-// Маппинг фреймов в CandleInterval Tinkoff API
 const TF_TO_INTERVAL: Record<Timeframe, string> = {
   '1m':  'CANDLE_INTERVAL_1_MIN',
   '5m':  'CANDLE_INTERVAL_5_MIN',
@@ -15,19 +14,17 @@ const TF_TO_INTERVAL: Record<Timeframe, string> = {
   '1M':  'CANDLE_INTERVAL_MONTH',
 };
 
-// Максимальный диапазон одного запроса (ms) — ограничение Tinkoff API
 const TF_MAX_RANGE_MS: Record<Timeframe, number> = {
-  '1m':  60 * 60 * 1000,           // 1 час
-  '5m':  24 * 60 * 60 * 1000,      // 1 день
-  '15m': 7 * 24 * 60 * 60 * 1000,  // 1 неделя
-  '1h':  7 * 24 * 60 * 60 * 1000,  // 1 неделя
-  '4h':  30 * 24 * 60 * 60 * 1000, // 1 месяц
-  '1d':  365 * 24 * 60 * 60 * 1000,// 1 год
+  '1m':  60 * 60 * 1000,
+  '5m':  24 * 60 * 60 * 1000,
+  '15m': 7 * 24 * 60 * 60 * 1000,
+  '1h':  7 * 24 * 60 * 60 * 1000,
+  '4h':  30 * 24 * 60 * 60 * 1000,
+  '1d':  365 * 24 * 60 * 60 * 1000,
   '1w':  2 * 365 * 24 * 60 * 60 * 1000,
   '1M':  5 * 365 * 24 * 60 * 60 * 1000,
 };
 
-// Шаг одного запроса (ms) для итерации назад
 const TF_STEP_MS: Record<Timeframe, number> = {
   '1m':  55 * 60 * 1000,
   '5m':  23 * 60 * 60 * 1000,
@@ -58,13 +55,36 @@ function parseCandle(c: any): Candle {
 export class TinkoffAdapter implements ExchangeAdapter {
   public id = 'tinkoff';
   private token: string;
-  // Кэш symbol -> figi
   private figiCache = new Map<string, string>();
 
   constructor() {
-    this.token = process.env.TINKOFF_TOKEN ?? '';
+    const raw = process.env.TINKOFF_TOKEN;
+
+    // --- Диагностика ---
+    console.log('[TinkoffAdapter] ENV keys containing TINKOFF:',
+      Object.keys(process.env).filter(k => k.includes('TINKOFF')));
+    console.log('[TinkoffAdapter] TINKOFF_TOKEN typeof:', typeof raw);
+    console.log('[TinkoffAdapter] TINKOFF_TOKEN is undefined:', raw === undefined);
+    console.log('[TinkoffAdapter] TINKOFF_TOKEN is empty string:', raw === '');
+    console.log('[TinkoffAdapter] TINKOFF_TOKEN length:', raw?.length ?? 'N/A');
+    // Первые 6 символов — не светим весь токен, но видим что он непустой
+    console.log('[TinkoffAdapter] TINKOFF_TOKEN prefix:', raw ? raw.slice(0, 6) + '...' : '(none)');
+    // Проверка на скрытые символы (перенос строки, пробел)
+    if (raw) {
+      console.log('[TinkoffAdapter] TINKOFF_TOKEN charCodes[0..2]:',
+        [...raw.slice(0, 3)].map(c => c.charCodeAt(0)));
+      const trimmed = raw.trim();
+      console.log('[TinkoffAdapter] TINKOFF_TOKEN trimmed length:', trimmed.length);
+      console.log('[TinkoffAdapter] has leading/trailing whitespace:', trimmed.length !== raw.length);
+    }
+    // ---
+
+    this.token = raw?.trim() ?? '';
+
     if (!this.token) {
       console.warn('[TinkoffAdapter] TINKOFF_TOKEN not set — adapter disabled');
+    } else {
+      console.log('[TinkoffAdapter] token loaded OK, length:', this.token.length);
     }
   }
 
@@ -81,7 +101,6 @@ export class TinkoffAdapter implements ExchangeAdapter {
         { headers: this.headers },
       );
       const instruments: any[] = res.data?.instruments ?? [];
-      // Точное совпадение tickerа
       const match = instruments.find(i => i.ticker === ticker) ?? instruments[0];
       if (!match) return null;
       const figi = match.figi as string;
@@ -140,7 +159,6 @@ export class TinkoffAdapter implements ExchangeAdapter {
       toMs = fromMs;
     }
 
-    // Дедубликация + сортировка
     const seen = new Set<number>();
     return collected
       .filter(c => { if (seen.has(c.time)) return false; seen.add(c.time); return true; })
@@ -191,7 +209,6 @@ export class TinkoffAdapter implements ExchangeAdapter {
       return instruments
         .filter(i => i.ticker && i.figi)
         .map(i => {
-          // кэшируем сразу чтобы getHistoricalCandles не делал лишний запрос
           this.figiCache.set(i.ticker as string, i.figi as string);
           return {
             exchange:    'tinkoff',

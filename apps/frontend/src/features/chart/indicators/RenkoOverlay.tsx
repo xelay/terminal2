@@ -14,7 +14,6 @@ interface Props {
   opacity: number;
   chart: IChartApi | null;
   series: ISeriesApi<'Candlestick'> | null;
-  // тик пересчёта при любом движении вида
   tick: number;
 }
 
@@ -40,12 +39,9 @@ export const RenkoOverlay: React.FC<Props> = ({
 
     const ts = chart.timeScale();
 
-    // Вычисляем шаг одного бара в пикселях — нужен для экстраполяции за левый край
-    // Берём две ближайшие видимые точки и считаем шаг
-    let pxPerSec = 0;
     const visibleBlocks = blocks.filter(b => b.timeEnd >= visibleFrom && b.timeStart <= visibleTo);
 
-    // Находим два блока, для которых timeToCoordinate работает
+    let pxPerSec = 0;
     let refTime1 = 0, refX1 = 0, refTime2 = 0, refX2 = 0;
     for (const b of visibleBlocks) {
       const x1 = ts.timeToCoordinate(b.timeStart as Time);
@@ -57,11 +53,9 @@ export const RenkoOverlay: React.FC<Props> = ({
       pxPerSec = (refX2 - refX1) / (refTime2 - refTime1);
     }
 
-    // Помощник: получить X любого времени
     const getX = (t: number): number => {
       const coord = ts.timeToCoordinate(t as Time);
       if (coord !== null) return coord;
-      // экстраполяция через знакомое опорное время
       if (pxPerSec !== 0 && refTime1 !== 0) {
         return refX1 + (t - refTime1) * pxPerSec;
       }
@@ -69,7 +63,8 @@ export const RenkoOverlay: React.FC<Props> = ({
     };
 
     const result: Array<{
-      key: number; x: number; y: number; w: number; h: number; color: string;
+      key: number; x: number; y: number; w: number; h: number;
+      color: string; fillOpacity: number;
     }> = [];
 
     for (let i = 0; i < visibleBlocks.length; i++) {
@@ -78,7 +73,6 @@ export const RenkoOverlay: React.FC<Props> = ({
       const xStart = getX(b.timeStart);
       const xEnd   = getX(b.timeEnd);
 
-      // Обрезаем по границам области свечей
       const x = Math.max(0, xStart);
       const w = Math.max(1, Math.min(chartWidth, xEnd) - x);
 
@@ -89,14 +83,17 @@ export const RenkoOverlay: React.FC<Props> = ({
       const y = Math.min(yTop, yBottom);
       const h = Math.max(1, Math.abs(yBottom - yTop));
 
+      // Пендинг-блок рисуем полупрозрачным
+      const fillOpacity = b.isPending ? opacity * 0.45 : opacity;
+
       result.push({
         key: i, x, y, w, h,
         color: b.direction === 'up' ? bullColor : bearColor,
+        fillOpacity,
       });
     }
 
     return result;
-  // tick в deps — форсируем пересчёт при любом движении
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [blocks, tick, containerWidth, rightOffset, bullColor, bearColor, opacity]);
 
@@ -115,7 +112,7 @@ export const RenkoOverlay: React.FC<Props> = ({
             x={r.x} y={r.y}
             width={r.w} height={r.h}
             fill={r.color}
-            fillOpacity={opacity}
+            fillOpacity={r.fillOpacity}
           />
         ))}
       </svg>

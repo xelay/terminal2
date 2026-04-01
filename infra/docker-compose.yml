@@ -5,16 +5,11 @@ services:
       context: ../apps/backend
       dockerfile: Dockerfile
     container_name: terminal_backend
+    env_file:
+      - ../apps/backend/.env
     environment:
       NODE_ENV: production
       PORT: 3000
-      DATABASE_URL: "postgres://postgres:1@192.168.1.100:5432/postgres?options=-c%20search_path=renko"
-      JWT_SECRET: change_me
-      GOOGLE_CLIENT_ID: change_me
-      GOOGLE_CLIENT_SECRET: change_me
-      GOOGLE_CALLBACK_URL: http://localhost:3000/api/auth/google/callback
-      FRONTEND_URL: http://localhost:5174
-      TINKOFF_TOKEN: ${TINKOFF_TOKEN:-}
     ports:
       - "3000:3000"
     restart: unless-stopped
@@ -24,9 +19,8 @@ services:
       context: ../apps/frontend
       dockerfile: Dockerfile
     container_name: terminal_frontend
-    environment:
-      - VITE_API_URL=http://localhost:3000
-      - VITE_WS_URL=http://localhost:3000
+    env_file:
+      - ../apps/frontend/.env
     ports:
       - "5174:80"
     depends_on:

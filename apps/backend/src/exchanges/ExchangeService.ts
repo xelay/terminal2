@@ -14,6 +14,7 @@ class ExchangeService {
 
   private registerAdapter(adapter: ExchangeAdapter) {
     this.adapters.set(adapter.id, adapter);
+    console.log(`[ExchangeService] registered adapter: ${adapter.id}`);
   }
 
   getAdapter(exchangeId: string): ExchangeAdapter {
@@ -25,12 +26,34 @@ class ExchangeService {
   /** Параллельный поиск по всем активным адаптерам */
   async searchAll(query: string): Promise<SymbolResult[]> {
     const adapters = [...this.adapters.values()];
+    console.log(`[ExchangeService] searchAll "${query}" — adapters: [${adapters.map(a => a.id).join(', ')}]`);
+
     const results = await Promise.allSettled(
-      adapters.map(a => a.searchSymbols(query))
+      adapters.map(a =>
+        a.searchSymbols(query)
+          .then(r => {
+            console.log(`[ExchangeService] ${a.id}.searchSymbols("${query}") => ${r.length} results`);
+            return r;
+          })
+          .catch(e => {
+            console.error(`[ExchangeService] ${a.id}.searchSymbols("${query}") THREW:`, e.message);
+            throw e;
+          })
+      )
     );
-    return results
-      .filter((r): r is PromiseFulfilledResult<SymbolResult[]> => r.status === 'fulfilled')
-      .flatMap(r => r.value);
+
+    const combined = results
+      .map((r, i) => {
+        if (r.status === 'rejected') {
+          console.warn(`[ExchangeService] adapter ${adapters[i].id} rejected:`, r.reason?.message);
+          return [];
+        }
+        return r.value;
+      })
+      .flat();
+
+    console.log(`[ExchangeService] searchAll "${query}" total: ${combined.length} results`);
+    return combined;
   }
 }
 

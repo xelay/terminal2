@@ -3,23 +3,26 @@ import { exchangeService } from '../exchanges/ExchangeService';
 
 export const marketRouter = Router();
 
-// Поиск символов — по всем биржам если exchange не указан
 marketRouter.get('/search', async (req, res) => {
   const { exchange, query } = req.query;
+  console.log(`[/search] query="${query}" exchange="${exchange ?? 'all'}"`);
+
   if (!query || !(query as string).trim()) {
     res.json({ symbols: [] });
     return;
   }
   try {
+    let symbols;
     if (exchange) {
       const adapter = exchangeService.getAdapter(exchange as string);
-      const symbols = await adapter.searchSymbols(query as string);
-      res.json({ symbols });
+      symbols = await adapter.searchSymbols(query as string);
     } else {
-      const symbols = await exchangeService.searchAll(query as string);
-      res.json({ symbols });
+      symbols = await exchangeService.searchAll(query as string);
     }
+    console.log(`[/search] responding with ${symbols.length} symbols`);
+    res.json({ symbols });
   } catch (e: any) {
+    console.error(`[/search] error:`, e.message);
     res.status(400).json({ error: e.message });
   }
 });
@@ -40,16 +43,14 @@ marketRouter.get('/history', async (req, res) => {
 
     let candles;
     if (before) {
-      // Пагинация назад: адаптер должен вернуть свечи ДО before
       candles = await adapter.getHistoricalCandles(
         symbol as string,
         tf as any,
         Number(before),
         lim,
-        true, // isPagination flag
+        true,
       );
     } else {
-      // Первоначальная загрузка: последние limit свечей
       candles = await adapter.getHistoricalCandles(
         symbol as string,
         tf as any,

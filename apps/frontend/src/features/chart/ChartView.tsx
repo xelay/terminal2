@@ -6,7 +6,7 @@ import { useLightweightChart } from './lwc/useLightweightChart';
 import { useChartRefs } from './ChartRefsContext';
 import { VolumeProfileOverlay } from './indicators/VolumeProfileOverlay';
 import { RenkoOverlay } from './indicators/RenkoOverlay';
-import { buildRenkoBlocks, calcATR, smartRound, RenkoBlock } from './indicators/renkoUtils';
+import { buildRenkoBlocks, RenkoBlock } from './indicators/renkoUtils';
 
 const tfToSeconds: Record<string, number> = {
   '1m': 60, '5m': 300, '15m': 900,
@@ -31,6 +31,9 @@ export const ChartView: React.FC = () => {
   const isFetchingHistory = useRef(false);
   const noMoreHistory     = useRef(false);
   const indicatorsRef     = useRef(indicators);
+
+  // Track last renko params to skip redundant rebuilds
+  const lastRenkoKeyRef = useRef<string>('');
 
   const [visibleRange, setVisibleRange]       = useState<{ from: number; to: number } | null>(null);
   const [containerSize, setContainerSize]     = useState({ width: 0, height: 0 });
@@ -109,18 +112,30 @@ export const ChartView: React.FC = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chartRef.current, candleSeriesRef.current, visibleRange]);
 
-  const rebuildRenko = useCallback(() => {
+  const rebuildRenko = useCallback((force = false) => {
     const rkInds = indicatorsRef.current.filter(i => i.type === 'renko');
     if (rkInds.length === 0 || candlesDataRef.current.length === 0) {
+      lastRenkoKeyRef.current = '';
       setRenkoBlocksMap({});
       return;
     }
     const candles = candlesDataRef.current;
-    const newMap: Record<string, RenkoBlock[]> = {};
+    const currentSymbol = useWorkspaceStore.getState().symbol;
 
+    // Build a stable key from all renko params + candles count to detect real changes
+    const renkoKey = rkInds
+      .map(ind => {
+        const blockSize = (ind.params.blockSizes ?? {})[currentSymbol] ?? 0;
+        return `${ind.id}:${blockSize}:${ind.params.source ?? 'close'}`;
+      })
+      .join('|') + `@${candles.length}`;
+
+    if (!force && renkoKey === lastRenkoKeyRef.current) return;
+    lastRenkoKeyRef.current = renkoKey;
+
+    const newMap: Record<string, RenkoBlock[]> = {};
     for (const ind of rkInds) {
       const blockSizes: Record<string, number> = ind.params.blockSizes ?? {};
-      const currentSymbol = useWorkspaceStore.getState().symbol;
       const blockSize = blockSizes[currentSymbol];
       if (!blockSize || blockSize <= 0) continue;
       newMap[ind.id] = buildRenkoBlocks(candles, blockSize, ind.params.source ?? 'close');
@@ -181,6 +196,7 @@ export const ChartView: React.FC = () => {
     const socket = socketRef.current;
     if (!socket || !chartRef.current) return;
     noMoreHistory.current = false;
+    lastRenkoKeyRef.current = '';
     const loadInitialData = async () => {
       try {
         isFetchingHistory.current = true;
@@ -194,7 +210,7 @@ export const ChartView: React.FC = () => {
           candleSeriesRef.current?.setData(
             raw.map(c => ({ time: c.time as Time, open: c.open, high: c.high, low: c.low, close: c.close }))
           );
-          syncVolume(); syncSMASeries(); rebuildRenko();
+          syncVolume(); syncSMASeries(); rebuildRenko(true);
         } else {
           candlesDataRef.current = [];
           candleSeriesRef.current?.setData([]);
@@ -244,9 +260,13 @@ export const ChartView: React.FC = () => {
     };
   }, [exchange, symbol, timeframe, chartRef]);
 
-  useEffect(() => { syncVolume(); syncSMASeries(); rebuildRenko(); }, [indicators]);
-
-  useEffect(() => { setRenkoBlocksMap({}); }, [symbol]);
+  // Rebuild renko when indicators change — but only if renko params actually changed
+  useEffect(() => {
+    syncVolume();
+    syncSMASeries();
+    rebuildRenko();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [indicators]);
 
   useEffect(() => {
     if (!chartRef.current) return;
@@ -262,7 +282,6 @@ export const ChartView: React.FC = () => {
       isFetchingHistory.current = true;
       try {
         const earliestTime = candlesDataRef.current[0].time;
-        // Передаём верхнюю границу (без включения) — бэкенд вернёт свечи ДО этого момента
         const res = await fetch(
           `${import.meta.env.VITE_API_URL}/api/market/history?exchange=${exchange}&symbol=${encodeURIComponent(symbol)}&tf=${timeframe}&limit=500&before=${earliestTime}`,
         );
@@ -271,7 +290,6 @@ export const ChartView: React.FC = () => {
           noMoreHistory.current = true;
           return;
         }
-        // Бэкенд уже фильтрует по time < earliestTime, но перестраховка не помешает
         const strictOld = old.filter((c: Candle) => c.time < earliestTime);
         if (strictOld.length > 0) {
           const merged = [...strictOld, ...candlesDataRef.current]
@@ -280,7 +298,7 @@ export const ChartView: React.FC = () => {
           candleSeriesRef.current?.setData(
             merged.map((c: Candle) => ({ time: c.time as Time, open: c.open, high: c.high, low: c.low, close: c.close }))
           );
-          syncVolume(); syncSMASeries(); rebuildRenko();
+          syncVolume(); syncSMASeries(); rebuildRenko(true);
         } else {
           noMoreHistory.current = true;
         }

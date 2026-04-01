@@ -6,6 +6,7 @@ export interface RenkoBlock {
   priceTo: number;    // верхняя граница блока
   timeStart: number;  // unix-time начала блока
   timeEnd: number;    // unix-time конца блока (включительно)
+  isPending?: boolean; // true = текущий незакрытый блок
 }
 
 type Candle = {
@@ -44,7 +45,14 @@ export function smartRound(value: number, refPrice: number): number {
   return Math.round(value * 100) / 100;
 }
 
-/** Основной алгоритм построения блоков Renko по всей истории */
+/**
+ * Основной алгоритм построения блоков Renko.
+ *
+ * Фиксы:
+ * 1. Закрытый блок не растягивается до конца графика — timeEnd фиксируется на свече закрытия.
+ * 2. Добавляется полупрозрачный «пендинг»-блок — показывает текущее движение цены до следующего уровня.
+ * 3. При source='highlow': сначала проверяем только одно направление (по последнему направлению движения).
+ */
 export function buildRenkoBlocks(
   candles: Candle[],
   blockSize: number,
@@ -54,52 +62,115 @@ export function buildRenkoBlocks(
 
   const blocks: RenkoBlock[] = [];
 
-  // Стартовая цена — close или mid первой свечи
   const firstCandle = candles[0];
   let currentLevel = source === 'close'
     ? firstCandle.close
     : (firstCandle.high + firstCandle.low) / 2;
 
-  // Выравниваем currentLevel по сетке blockSize
+  // Выравниваем по сетке
   currentLevel = Math.floor(currentLevel / blockSize) * blockSize;
 
   let blockStartTime = firstCandle.time;
 
+  // Текущее направление (для highlow режима: помним последнее движение чтобы не проверять оба направления внутри одной свечи)
+  let lastDirection: 'up' | 'down' | null = null;
+
   for (const candle of candles) {
-    const priceHigh = source === 'close' ? candle.close : candle.high;
-    const priceLow  = source === 'close' ? candle.close : candle.low;
-
-    // Проверяем блоки вверх
-    while (priceHigh >= currentLevel + blockSize) {
-      blocks.push({
-        direction: 'up',
-        priceFrom: currentLevel,
-        priceTo:   currentLevel + blockSize,
-        timeStart: blockStartTime,
-        timeEnd:   candle.time,
-      });
-      currentLevel += blockSize;
-      blockStartTime = candle.time;
-    }
-
-    // Проверяем блоки вниз
-    while (priceLow <= currentLevel - blockSize) {
-      blocks.push({
-        direction: 'down',
-        priceFrom: currentLevel - blockSize,
-        priceTo:   currentLevel,
-        timeStart: blockStartTime,
-        timeEnd:   candle.time,
-      });
-      currentLevel -= blockSize;
-      blockStartTime = candle.time;
+    if (source === 'close') {
+      const price = candle.close;
+      // Вверх
+      while (price >= currentLevel + blockSize) {
+        blocks.push({
+          direction: 'up',
+          priceFrom: currentLevel,
+          priceTo:   currentLevel + blockSize,
+          timeStart: blockStartTime,
+          timeEnd:   candle.time,
+        });
+        currentLevel += blockSize;
+        blockStartTime = candle.time;
+        lastDirection = 'up';
+      }
+      // Вниз
+      while (price <= currentLevel - blockSize) {
+        blocks.push({
+          direction: 'down',
+          priceFrom: currentLevel - blockSize,
+          priceTo:   currentLevel,
+          timeStart: blockStartTime,
+          timeEnd:   candle.time,
+        });
+        currentLevel -= blockSize;
+        blockStartTime = candle.time;
+        lastDirection = 'down';
+      }
+    } else {
+      // highlow: сначала проверяем только одно направление чтобы избежать конфликта high/low в одной свече
+      // Приоритет up: если последнее движение было up или неустановлено
+      if (lastDirection !== 'down' && candle.high >= currentLevel + blockSize) {
+        while (candle.high >= currentLevel + blockSize) {
+          blocks.push({
+            direction: 'up',
+            priceFrom: currentLevel,
+            priceTo:   currentLevel + blockSize,
+            timeStart: blockStartTime,
+            timeEnd:   candle.time,
+          });
+          currentLevel += blockSize;
+          blockStartTime = candle.time;
+          lastDirection = 'up';
+        }
+      } else if (candle.low <= currentLevel - blockSize) {
+        while (candle.low <= currentLevel - blockSize) {
+          blocks.push({
+            direction: 'down',
+            priceFrom: currentLevel - blockSize,
+            priceTo:   currentLevel,
+            timeStart: blockStartTime,
+            timeEnd:   candle.time,
+          });
+          currentLevel -= blockSize;
+          blockStartTime = candle.time;
+          lastDirection = 'down';
+        }
+      }
     }
   }
 
-  // Последний незакрытый блок — тянем до последней свечи
-  // (не добавляем как полноценный блок, просто растягиваем последний)
-  if (blocks.length > 0) {
-    blocks[blocks.length - 1].timeEnd = candles[candles.length - 1].time;
+  // Пендинг-блок: показывает текущую позицию цены относительно следующего уровня
+  if (candles.length > 0) {
+    const lastCandle = candles[candles.length - 1];
+    const lastPrice = source === 'close'
+      ? lastCandle.close
+      : (lastCandle.high + lastCandle.low) / 2;
+
+    // Определяем направление пендинг-блока по позиции цены
+    const pendingDir: 'up' | 'down' = lastPrice >= currentLevel ? 'up' : 'down';
+
+    let pendingFrom: number;
+    let pendingTo: number;
+
+    if (pendingDir === 'up') {
+      pendingFrom = currentLevel;
+      // Тянем до текущей цены, но не выше следующего уровня
+      pendingTo = Math.min(lastPrice, currentLevel + blockSize);
+    } else {
+      // Цена ниже currentLevel — блок смотрит вниз
+      pendingFrom = Math.max(lastPrice, currentLevel - blockSize);
+      pendingTo   = currentLevel;
+    }
+
+    // Не добавляем пендинг если он пустой (pending == 0 высоты)
+    if (Math.abs(pendingTo - pendingFrom) > 0.001) {
+      blocks.push({
+        direction: pendingDir,
+        priceFrom: pendingFrom,
+        priceTo:   pendingTo,
+        timeStart: blockStartTime,
+        timeEnd:   lastCandle.time,
+        isPending: true,
+      });
+    }
   }
 
   return blocks;
